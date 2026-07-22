@@ -6,6 +6,7 @@
 #include <atomic>
 #include <bitset>
 #include <list>
+#include <map>
 #include <thread>
 
 // lib includes
@@ -370,6 +371,12 @@ namespace video {
 
     avcodec_ctx_t avcodec_ctx;
     std::unique_ptr<platf::avcodec_encode_device_t> device;
+
+    // Capture timestamps of frames in flight inside the encoder, keyed by pts.
+    // Async encoders (e.g. VideoToolbox) return packets for frames sent several
+    // calls ago, so the timestamp must be looked up by the packet's pts rather
+    // than assumed to belong to the frame just submitted.
+    std::map<int64_t, std::chrono::steady_clock::time_point> pending_frame_timestamps;
 
     std::vector<packet_raw_t::replace_t> replacements;
 
@@ -1440,6 +1447,10 @@ namespace video {
     auto &sps = session.sps;
     auto &vps = session.vps;
 
+    if (frame_timestamp) {
+      session.pending_frame_timestamps.emplace(frame_nr, *frame_timestamp);
+    }
+
     // send the frame to the encoder
     auto ret = avcodec_send_frame(ctx.get(), frame);
     if (ret < 0) {
@@ -1493,8 +1504,14 @@ namespace video {
         );
       }
 
-      if (av_packet && av_packet->pts == frame_nr) {
-        packet->frame_timestamp = frame_timestamp;
+      if (av_packet) {
+        auto it = session.pending_frame_timestamps.find(av_packet->pts);
+        if (it != session.pending_frame_timestamps.end()) {
+          packet->frame_timestamp = it->second;
+          // Drop this and any older entries; encoders may skip pts values
+          // (frame drops, resets), and those timestamps will never be claimed.
+          session.pending_frame_timestamps.erase(session.pending_frame_timestamps.begin(), std::next(it));
+        }
       }
 
       packet->replacements = &session.replacements;
