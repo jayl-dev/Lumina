@@ -23,6 +23,34 @@ ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+PRESERVE_STATE=false
+
+usage() {
+    cat <<'EOF'
+Usage: ./install.sh [options]
+
+Options:
+  --preserve-state  Keep existing credentials, TLS identity, and Moonlight pairings
+  -h, --help        Show this help message
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --preserve-state)
+            PRESERVE_STATE=true
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            error "Unknown option: $1 (run ./install.sh --help for usage)"
+            ;;
+    esac
+    shift
+done
+
 echo ""
 echo "  ╦   ╦ ╦╔╦╗╔═╗╔╗╔"
 echo "  ║   ║ ║║║║║╣ ║║║"
@@ -262,13 +290,17 @@ cat > "$CONFIG_DIR/apps.json" << 'APPS'
 APPS
 ok "Created apps.json"
 
-# Keep credentials, TLS identity, and Moonlight pairings across rebuilds. The
-# virtual gamepad is created only for an authenticated Moonlight stream, so
-# deleting this file during every developer install also breaks controller tests.
+# Start with fresh credentials, TLS identity, and Moonlight pairings by default.
+# Pass --preserve-state to keep them across rebuilds.
 STATE_FILE="$CONFIG_DIR/sunshine_state.json"
-if [ -f "$STATE_FILE" ]; then
+if [ "$PRESERVE_STATE" = true ] && [ -f "$STATE_FILE" ]; then
     ok "Preserved Web UI credentials and paired Moonlight clients"
 else
+    if [ -f "$STATE_FILE" ]; then
+        info "Removing existing credentials and paired Moonlight clients..."
+        rm -f "$STATE_FILE"
+    fi
+
     echo ""
     info "Setting up Web UI credentials..."
     echo "  Choose a username and password for the Lumen web interface."
