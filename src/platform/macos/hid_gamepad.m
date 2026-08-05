@@ -80,9 +80,17 @@ static const uint8_t kHIDReportDescriptor[] = {
     0x81, 0x01,        //   Input (Constant)
 
     // --- Triggers (2x 8-bit) ---
-    0x05, 0x02,        //   Usage Page (Simulation Controls)
-    0x09, 0xC5,        //   Usage (Brake) - Left Trigger
-    0x09, 0xC4,        //   Usage (Accelerator) - Right Trigger
+    // Wine/CrossOver's HID-to-XInput path expects triggers on Z/Rz and the
+    // right stick on Rx/Ry. Using Brake/Accelerator creates duplicate DirectInput
+    // axes and leaves the XInput right-stick axes unpopulated.
+    // Physical range and unit are global HID items. Reset the hat switch's
+    // degree metadata before describing the remaining linear controls.
+    0x35, 0x00,        //   Physical Minimum (0)
+    0x45, 0x00,        //   Physical Maximum (0 = use logical maximum)
+    0x65, 0x00,        //   Unit (None)
+    0x05, 0x01,        //   Usage Page (Generic Desktop)
+    0x09, 0x32,        //   Usage (Z) - Left Trigger
+    0x09, 0x35,        //   Usage (Rz) - Right Trigger
     0x15, 0x00,        //   Logical Minimum (0)
     0x26, 0xFF, 0x00,  //   Logical Maximum (255)
     0x75, 0x08,        //   Report Size (8)
@@ -93,10 +101,12 @@ static const uint8_t kHIDReportDescriptor[] = {
     0x05, 0x01,        //   Usage Page (Generic Desktop)
     0x09, 0x30,        //   Usage (X) - Left Stick X
     0x09, 0x31,        //   Usage (Y) - Left Stick Y
-    0x09, 0x32,        //   Usage (Z) - Right Stick X
-    0x09, 0x35,        //   Usage (Rz) - Right Stick Y
+    0x09, 0x33,        //   Usage (Rx) - Right Stick X
+    0x09, 0x34,        //   Usage (Ry) - Right Stick Y
     0x16, 0x00, 0x80,  //   Logical Minimum (-32768)
     0x26, 0xFF, 0x7F,  //   Logical Maximum (32767)
+    0x36, 0x00, 0x80,  //   Physical Minimum (-32768)
+    0x46, 0xFF, 0x7F,  //   Physical Maximum (32767)
     0x75, 0x10,        //   Report Size (16)
     0x95, 0x04,        //   Report Count (4)
     0x81, 0x02,        //   Input (Data, Variable, Absolute)
