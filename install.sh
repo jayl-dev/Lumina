@@ -262,32 +262,34 @@ cat > "$CONFIG_DIR/apps.json" << 'APPS'
 APPS
 ok "Created apps.json"
 
-# Always set up Web UI credentials during install.
-# Remove any old state file from previous Sunshine installs — paired devices
-# won't carry over anyway since Lumen generates its own TLS certificates.
+# Keep credentials, TLS identity, and Moonlight pairings across rebuilds. The
+# virtual gamepad is created only for an authenticated Moonlight stream, so
+# deleting this file during every developer install also breaks controller tests.
 STATE_FILE="$CONFIG_DIR/sunshine_state.json"
-rm -f "$STATE_FILE"
-
-echo ""
-info "Setting up Web UI credentials..."
-echo "  Choose a username and password for the Lumen web interface."
-echo "  (You'll use these to log in at https://localhost:47990)"
-echo ""
-printf "  Username: "
-read -r LUMEN_USER
-printf "  Password: "
-read -rs LUMEN_PASS
-echo ""
-if [ -n "$LUMEN_USER" ] && [ -n "$LUMEN_PASS" ]; then
-    "$INSTALL_DIR/sunshine" --creds "$LUMEN_USER" "$LUMEN_PASS" 2>&1 | grep -v "^$"
-    # Verify credentials were actually written
-    if [ -f "$STATE_FILE" ] && grep -q "\"username\"" "$STATE_FILE" 2>/dev/null; then
-        ok "Web UI credentials saved"
-    else
-        warn "Failed to save credentials. Set them manually: lumen --creds username password"
-    fi
+if [ -f "$STATE_FILE" ]; then
+    ok "Preserved Web UI credentials and paired Moonlight clients"
 else
-    warn "Skipped — you can set credentials later at https://localhost:47990"
+    echo ""
+    info "Setting up Web UI credentials..."
+    echo "  Choose a username and password for the Lumen web interface."
+    echo "  (You'll use these to log in at https://localhost:47990)"
+    echo ""
+    printf "  Username: "
+    read -r LUMEN_USER
+    printf "  Password: "
+    read -rs LUMEN_PASS
+    echo ""
+    if [ -n "$LUMEN_USER" ] && [ -n "$LUMEN_PASS" ]; then
+        "$INSTALL_DIR/sunshine" --creds "$LUMEN_USER" "$LUMEN_PASS" 2>&1 | grep -v "^$"
+        # Verify credentials were actually written
+        if [ -f "$STATE_FILE" ] && grep -q "\"username\"" "$STATE_FILE" 2>/dev/null; then
+            ok "Web UI credentials saved"
+        else
+            warn "Failed to save credentials. Set them manually: lumen --creds username password"
+        fi
+    else
+        warn "Skipped — you can set credentials later at https://localhost:47990"
+    fi
 fi
 
 # Create launcher script that auto-signs for gamepad support on every launch
