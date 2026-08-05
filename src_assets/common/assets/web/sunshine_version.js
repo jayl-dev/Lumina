@@ -4,7 +4,7 @@ class SunshineVersion {
       this.release = release;
       this.version = release.tag_name;
       this.versionName = release.name;
-      this.versionTag = release.tag_tag;
+      this.versionTag = release.tag_name;
     } else if (version) {
       this.release = null;
       this.version = version;
@@ -23,11 +23,11 @@ class SunshineVersion {
     if (!version) {
       return null;
     }
-    let v = version;
-    if (v.indexOf("v") === 0) {
-      v = v.substring(1);
+    const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+    if (!match) {
+      return null;
     }
-    return v.split('.').map(Number);
+    return match.slice(1).map(Number);
   }
 
   isGreater(otherVersion) {

@@ -1,6 +1,13 @@
 <script setup>
 import Checkbox from '../../Checkbox.vue'
 import { ref } from 'vue'
+import {
+  Play,
+  Plus,
+  Shield,
+  Trash2,
+  Undo,
+} from 'lucide-vue-next'
 
 const props = defineProps({
   platform: String,
@@ -35,8 +42,8 @@ function removeCmd(index) {
         <option value="cs">Čeština (Czech)</option>
         <option value="de">Deutsch (German)</option>
         <option value="en">English</option>
-        <option value="en_GB">English, UK</option>
-        <option value="en_US">English, US</option>
+        <option value="en_GB">English, United Kingdom</option>
+        <option value="en_US">English, United States</option>
         <option value="es">Español (Spanish)</option>
         <option value="fr">Français (French)</option>
         <option value="hu">Magyar (Hungarian)</option>
@@ -57,10 +64,10 @@ function removeCmd(index) {
       <div class="form-text">{{ $t('config.locale_desc') }}</div>
     </div>
 
-    <!-- Sunshine Name -->
+    <!-- Lumina Name -->
     <div class="mb-3">
       <label for="sunshine_name" class="form-label">{{ $t('config.sunshine_name') }}</label>
-      <input type="text" class="form-control" id="sunshine_name" placeholder="Sunshine"
+      <input type="text" class="form-control" id="sunshine_name" placeholder="Lumina"
              v-model="config.sunshine_name" />
       <div class="form-text">{{ $t('config.sunshine_name_desc') }}</div>
     </div>
@@ -87,10 +94,10 @@ function removeCmd(index) {
       <table class="table" v-if="config.global_prep_cmd.length > 0">
         <thead>
         <tr>
-          <th scope="col"><i class="fas fa-play"></i> {{ $t('_common.do_cmd') }}</th>
-          <th scope="col"><i class="fas fa-undo"></i> {{ $t('_common.undo_cmd') }}</th>
+          <th scope="col"><Play :size="16" /> {{ $t('_common.do_cmd') }}</th>
+          <th scope="col"><Undo :size="16" /> {{ $t('_common.undo_cmd') }}</th>
           <th scope="col" v-if="platform === 'windows'">
-            <i class="fas fa-shield-alt"></i> {{ $t('_common.run_as') }}
+            <Shield :size="16" /> {{ $t('_common.run_as') }}
           </th>
           <th scope="col"></th>
         </tr>
@@ -112,10 +119,10 @@ function removeCmd(index) {
           </td>
           <td>
             <button class="btn btn-danger" @click="removeCmd(i)">
-              <i class="fas fa-trash"></i>
+              <Trash2 :size="16" />
             </button>
             <button class="btn btn-success" @click="addCmd">
-              <i class="fas fa-plus"></i>
+              <Plus :size="16" />
             </button>
           </td>
         </tr>

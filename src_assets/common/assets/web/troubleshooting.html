@@ -70,7 +70,7 @@
         </div>
       </div>
     </div>
-    <!-- Restart Sunshine -->
+    <!-- Restart Lumina -->
     <div class="card my-4">
       <div class="card-body">
         <h2 id="restart">{{ $t('troubleshooting.restart_sunshine') }}</h2>
@@ -186,7 +186,8 @@
                   <chevrons-down :size="18" class="icon"></chevrons-down>
                 </button>
                 <button class="log-nav-btn" @click="copyLogs" title="Copy Logs">
-                  <copy :size="18" class="icon"></copy>
+                  <check :size="18" class="icon text-success" v-if="logsCopied"></check>
+                  <copy :size="18" class="icon" v-else></copy>
                 </button>
               </div>
             </div>
@@ -205,6 +206,7 @@
     import {
       AlertCircle,
       AlertTriangle,
+      Check,
       CheckCircle,
       ChevronDown,
       ChevronUp,
@@ -224,6 +226,7 @@
         Navbar,
         AlertCircle,
         AlertTriangle,
+        Check,
         CheckCircle,
         ChevronDown,
         ChevronUp,
@@ -244,6 +247,7 @@
           closeAppStatus: null,
           ddResetPressed: false,
           ddResetStatus: null,
+          logsCopied: false,
           logs: 'Loading...',
           logFilter: null,
           logInterval: null,
@@ -312,7 +316,7 @@
             if (!raw) continue;
 
             // Determine level based on the *first* level token in the entry.
-            // Sunshine logs are typically: "[ts]: Level: message".
+            // Lumina logs are typically: "[ts]: Level: message".
             // Some messages may contain additional embedded timestamps, but we treat
             // those as part of the entry content.
             let level = 'Info';
@@ -385,6 +389,7 @@
         }
       },
       created() {
+        this._logsCopyTimeout = null;
         fetch("/api/config")
           .then((r) => r.json())
           .then((r) => {
@@ -404,6 +409,7 @@
       },
       beforeDestroy() {
         clearInterval(this.logInterval);
+        clearTimeout(this._logsCopyTimeout);
       },
       methods: {
         refreshLogs() {
@@ -489,7 +495,20 @@
         },
         copyLogs() {
           // Copy the filtered view if a filter is active.
-          navigator.clipboard.writeText(this.actualLogs);
+          navigator.clipboard.writeText(this.actualLogs).then(() => {
+            // Clear any existing reset timer (handles rapid successive clicks).
+            if (this._logsCopyTimeout) clearTimeout(this._logsCopyTimeout);
+
+            // Show checkmark feedback.
+            this.logsCopied = true;
+
+            // Revert icon after 2 seconds.
+            this._logsCopyTimeout = setTimeout(() => {
+              this.logsCopied = false;
+            }, 2000);
+          }).catch((err) => {
+            console.error('Failed to copy logs:', err);
+          });
         },
         restart() {
           this.restartPressed = true;

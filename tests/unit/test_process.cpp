@@ -18,7 +18,7 @@ class ProcessPNGTest: public ::testing::Test {
 protected:
   void SetUp() override {
     // Create test directory
-    test_dir = fs::temp_directory_path() / "sunshine_process_png_test";
+    test_dir = fs::temp_directory_path() / "sunshine_process_png_test";  // NOSONAR(cpp:S5443) - safe for tests
     fs::create_directories(test_dir);
   }
 
@@ -120,7 +120,7 @@ TEST_F(ProcessPNGTest, CheckValidPNG_NonExistentFile) {
 }
 
 TEST_F(ProcessPNGTest, CheckValidPNG_RealFile) {
-  // Test with the actual sunshine.png from the project root
+  // Test with the actual Sunshine icon from the project root
 
   // Only run this test if the file exists
   if (const fs::path sunshine_png = fs::path(SUNSHINE_SOURCE_DIR) / "sunshine.png"; fs::exists(sunshine_png)) {

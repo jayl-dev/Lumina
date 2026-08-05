@@ -1,16 +1,17 @@
 #!/bin/bash
 set -e
 
-# ─── Lumen Installer ───────────────────────────────────────────────────────────
+# ─── Lumina Installer ───────────────────────────────────────────────────────────
 # One-click build and install for macOS Apple Silicon.
 # Installs all dependencies, builds from source, and sets up configuration.
 # ────────────────────────────────────────────────────────────────────────────────
 
-LUMEN_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="$HOME/.local/share/lumen"
+LUMINA_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$HOME/.local/share/lumina"
 BIN_DIR="$HOME/.local/bin"
-CONFIG_DIR="$HOME/.config/sunshine"
-BUILD_DIR="$LUMEN_DIR/build"
+CONFIG_DIR="$HOME/.config/lumina"
+SUNSHINE_CONFIG_DIR="$HOME/.config/sunshine"
+BUILD_DIR="$LUMINA_DIR/build"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,20 +25,26 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 PRESERVE_STATE=false
+IMPORT_SUNSHINE_CONFIG=false
 
 usage() {
     cat <<'EOF'
 Usage: ./install.sh [options]
 
 Options:
-  --preserve-state  Keep existing credentials, TLS identity, and Moonlight pairings
-  -h, --help        Show this help message
+  --preserve-state          Keep existing Lumina credentials, TLS identity, and pairings
+  --import-sunshine-config  Copy an existing ~/.config/sunshine installation into Lumina
+  -h, --help                Show this help message
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --preserve-state)
+            PRESERVE_STATE=true
+            ;;
+        --import-sunshine-config)
+            IMPORT_SUNSHINE_CONFIG=true
             PRESERVE_STATE=true
             ;;
         -h|--help)
@@ -51,10 +58,14 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ "$IMPORT_SUNSHINE_CONFIG" = true ] && [ ! -d "$SUNSHINE_CONFIG_DIR" ]; then
+    error "Cannot import Sunshine config: $SUNSHINE_CONFIG_DIR does not exist"
+fi
+
 echo ""
-echo "  ╦   ╦ ╦╔╦╗╔═╗╔╗╔"
-echo "  ║   ║ ║║║║║╣ ║║║"
-echo "  ╩═╝╚═╝╩ ╩╚═╝╝╚╝"
+echo "  ╦  ╦ ╦╔╦╗╦╔╗╔╔═╗"
+echo "  ║  ║ ║║║║║║║║╠═╣"
+echo "  ╩═╝╚═╝╩ ╩╩╝╚╝╩ ╩"
 echo "  Native macOS Game Streaming"
 echo ""
 
@@ -65,14 +76,14 @@ info "Running pre-flight checks..."
 # Check macOS version (need 14+ for CGVirtualDisplay)
 MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
 if [ "$MACOS_MAJOR" -lt 14 ]; then
-    error "Lumen requires macOS 14 (Sonoma) or later. You have macOS $(sw_vers -productVersion)."
+    error "Lumina requires macOS 14 (Sonoma) or later. You have macOS $(sw_vers -productVersion)."
 fi
 ok "macOS $(sw_vers -productVersion)"
 
 # Check Apple Silicon
 ARCH=$(uname -m)
 if [ "$ARCH" != "arm64" ]; then
-    error "Lumen only supports Apple Silicon (arm64). Detected: $ARCH"
+    error "Lumina only supports Apple Silicon (arm64). Detected: $ARCH"
 fi
 ok "Apple Silicon ($ARCH)"
 
@@ -105,7 +116,7 @@ DEPS=(
     pkg-config      # Library path resolution for build system
     openssl@3       # TLS/SSL for HTTPS web UI and RTSP streaming
     opus            # Audio codec for low-latency streaming
-    llvm            # Clang/LLVM toolchain (required by Sunshine build)
+    llvm            # Clang/LLVM toolchain (required by the Lumina build)
     doxygen         # Documentation generation (build requirement)
     graphviz        # Documentation graphs (build requirement)
     node            # Web UI build toolchain (Vue 3 + Vite)
@@ -154,7 +165,7 @@ ok "C++ headers: $CXX_HEADERS"
 
 # ─── Build ──────────────────────────────────────────────────────────────────────
 
-info "Building Lumen from source..."
+info "Building Lumina from source..."
 
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
@@ -169,6 +180,9 @@ cmake -DCMAKE_BUILD_TYPE=Release \
   -DSUNSHINE_ASSETS_DIR="$INSTALL_DIR/assets" \
   -DSUNSHINE_BUILD_HOMEBREW=ON \
   -DSUNSHINE_ENABLE_TRAY=ON \
+  -DSUNSHINE_PUBLISHER_NAME="jayl-dev" \
+  -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/jayl-dev/Lumina" \
+  -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/jayl-dev/Lumina/issues" \
   -DBOOST_USE_STATIC=OFF \
   -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
   -DCMAKE_CXX_FLAGS="-nostdinc++ -cxx-isystem $CXX_HEADERS -std=gnu++2b -I$OPENSSL_PREFIX/include" \
@@ -183,7 +197,7 @@ ok "Build complete"
 # Build get_display_origin helper (used by app launch scripts to find virtual display position)
 info "Building display helper tools..."
 clang -framework CoreGraphics -o "$BUILD_DIR/get_display_origin" \
-  "$LUMEN_DIR/src/platform/macos/get_display_origin.m" 2>/dev/null && \
+  "$LUMINA_DIR/src/platform/macos/get_display_origin.m" 2>/dev/null && \
   ok "get_display_origin" || warn "get_display_origin build failed (non-critical)"
 
 # ─── Install ────────────────────────────────────────────────────────────────────
@@ -194,9 +208,33 @@ mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 mkdir -p "$CONFIG_DIR/scripts"
 
+if [ "$IMPORT_SUNSHINE_CONFIG" = true ]; then
+    info "Importing existing Sunshine configuration..."
+
+    IMPORTED_PRIMARY_CONFIG=false
+    if [ -f "$SUNSHINE_CONFIG_DIR/sunshine.conf" ] && [ ! -f "$CONFIG_DIR/sunshine.conf" ]; then
+        IMPORTED_PRIMARY_CONFIG=true
+    fi
+
+    # Copy without overwriting files from an existing Lumina installation.
+    cp -Rpn "$SUNSHINE_CONFIG_DIR/." "$CONFIG_DIR/"
+
+    # Make the imported primary config independent from the Sunshine folder.
+    # Only the copied file is edited; the source remains untouched.
+    if [ "$IMPORTED_PRIMARY_CONFIG" = true ]; then
+        sed -i '' \
+            -e "s|$SUNSHINE_CONFIG_DIR|$CONFIG_DIR|g" \
+            -e 's|~/.config/sunshine|~/.config/lumina|g' \
+            -e 's|$HOME/.config/sunshine|$HOME/.config/lumina|g' \
+            "$CONFIG_DIR/sunshine.conf"
+    fi
+
+    ok "Copied Sunshine configuration to $CONFIG_DIR (source left unchanged)"
+fi
+
 # Copy binary (follow symlinks)
-cp -fL "$BUILD_DIR/sunshine" "$INSTALL_DIR/sunshine" 2>/dev/null || \
-  cp -f "$BUILD_DIR/sunshine-"* "$INSTALL_DIR/sunshine" 2>/dev/null
+cp -fL "$BUILD_DIR/lumina" "$INSTALL_DIR/lumina" 2>/dev/null || \
+  cp -f "$BUILD_DIR/lumina-"* "$INSTALL_DIR/lumina" 2>/dev/null
 
 # Copy helper binaries
 for helper in vd_helper get_display_origin; do
@@ -208,10 +246,10 @@ done
 
 # Copy assets
 ASSETS_SRC=""
-if [ -d "$BUILD_DIR/sunshine/assets" ]; then
-    ASSETS_SRC="$BUILD_DIR/sunshine/assets"
-elif [ -d "$BUILD_DIR/assets" ]; then
+if [ -d "$BUILD_DIR/assets" ]; then
     ASSETS_SRC="$BUILD_DIR/assets"
+elif [ -d "$BUILD_DIR/sunshine/assets" ]; then
+    ASSETS_SRC="$BUILD_DIR/sunshine/assets"
 fi
 
 if [ -n "$ASSETS_SRC" ]; then
@@ -222,7 +260,7 @@ fi
 
 # Ensure web public files (CSS, images, locales) are present.
 # Vite's copyPublicDir can fail when outDir is outside the project root.
-WEB_PUBLIC="$LUMEN_DIR/src_assets/common/assets/web/public"
+WEB_PUBLIC="$LUMINA_DIR/src_assets/common/assets/web/public"
 if [ -d "$WEB_PUBLIC" ] && [ -d "$INSTALL_DIR/assets/web" ]; then
     cp -Rf "$WEB_PUBLIC"/* "$INSTALL_DIR/assets/web/"
     ok "Installed web assets (CSS, images, locales)"
@@ -241,18 +279,23 @@ cat > "$INSTALL_DIR/hid_entitlements.plist" << 'PLIST'
 PLIST
 
 # Copy example launch scripts
-if [ -d "$LUMEN_DIR/scripts" ]; then
-    cp -f "$LUMEN_DIR/scripts/"*.sh "$CONFIG_DIR/scripts/" 2>/dev/null
+if [ -d "$LUMINA_DIR/scripts" ]; then
+    if [ "$IMPORT_SUNSHINE_CONFIG" = true ]; then
+        cp -n "$LUMINA_DIR/scripts/"*.sh "$CONFIG_DIR/scripts/" 2>/dev/null || true
+    else
+        cp -f "$LUMINA_DIR/scripts/"*.sh "$CONFIG_DIR/scripts/" 2>/dev/null
+    fi
     chmod +x "$CONFIG_DIR/scripts/"*.sh 2>/dev/null
     ok "Installed example launch scripts"
 fi
 
-# Clean slate: always write fresh config and apps.json.
-# Old configs from previous Sunshine installs can have invalid options
-# (e.g. min_bitrate, wrong output_name) that cause confusing warnings.
+# Write fresh defaults unless the user explicitly imported Sunshine settings.
+if [ "$IMPORT_SUNSHINE_CONFIG" = true ] && [ -f "$CONFIG_DIR/sunshine.conf" ]; then
+    ok "Using imported configuration at $CONFIG_DIR/sunshine.conf"
+else
 cat > "$CONFIG_DIR/sunshine.conf" << 'CONF'
-# Lumen Configuration
-# See https://github.com/trollzem/Lumen for documentation
+# Lumina Configuration
+# See https://github.com/jayl-dev/Lumina for documentation
 
 # Audio: "system" uses ScreenCaptureKit for native system audio capture
 # No extra software needed — captures all desktop audio directly.
@@ -275,7 +318,11 @@ upnp = enabled
 # encoder = videotoolbox
 CONF
 ok "Config written to $CONFIG_DIR/sunshine.conf"
+fi
 
+if [ "$IMPORT_SUNSHINE_CONFIG" = true ] && [ -f "$CONFIG_DIR/apps.json" ]; then
+    ok "Using imported application list at $CONFIG_DIR/apps.json"
+else
 cat > "$CONFIG_DIR/apps.json" << 'APPS'
 {
   "env": {
@@ -289,9 +336,9 @@ cat > "$CONFIG_DIR/apps.json" << 'APPS'
 }
 APPS
 ok "Created apps.json"
+fi
 
-# Start with fresh credentials, TLS identity, and Moonlight pairings by default.
-# Pass --preserve-state to keep them across rebuilds.
+# Preserve an existing or imported Lumina state file when requested.
 STATE_FILE="$CONFIG_DIR/sunshine_state.json"
 if [ "$PRESERVE_STATE" = true ] && [ -f "$STATE_FILE" ]; then
     ok "Preserved Web UI credentials and paired Moonlight clients"
@@ -303,21 +350,21 @@ else
 
     echo ""
     info "Setting up Web UI credentials..."
-    echo "  Choose a username and password for the Lumen web interface."
+    echo "  Choose a username and password for the Lumina web interface."
     echo "  (You'll use these to log in at https://localhost:47990)"
     echo ""
     printf "  Username: "
-    read -r LUMEN_USER
+    read -r WEB_UI_USER
     printf "  Password: "
-    read -rs LUMEN_PASS
+    read -rs WEB_UI_PASS
     echo ""
-    if [ -n "$LUMEN_USER" ] && [ -n "$LUMEN_PASS" ]; then
-        "$INSTALL_DIR/sunshine" --creds "$LUMEN_USER" "$LUMEN_PASS" 2>&1 | grep -v "^$"
+    if [ -n "$WEB_UI_USER" ] && [ -n "$WEB_UI_PASS" ]; then
+        "$INSTALL_DIR/lumina" --creds "$WEB_UI_USER" "$WEB_UI_PASS" 2>&1 | grep -v "^$"
         # Verify credentials were actually written
         if [ -f "$STATE_FILE" ] && grep -q "\"username\"" "$STATE_FILE" 2>/dev/null; then
             ok "Web UI credentials saved"
         else
-            warn "Failed to save credentials. Set them manually: lumen --creds username password"
+            warn "Failed to save credentials. Set them manually: lumina --creds username password"
         fi
     else
         warn "Skipped — you can set credentials later at https://localhost:47990"
@@ -325,17 +372,17 @@ else
 fi
 
 # Create launcher script that auto-signs for gamepad support on every launch
-cat > "$BIN_DIR/lumen" << 'LAUNCHER'
+cat > "$BIN_DIR/lumina" << 'LAUNCHER'
 #!/bin/bash
-INSTALL_DIR="$HOME/.local/share/lumen"
+INSTALL_DIR="$HOME/.local/share/lumina"
 ENTITLEMENTS="$INSTALL_DIR/hid_entitlements.plist"
-BINARY="$INSTALL_DIR/sunshine"
+BINARY="$INSTALL_DIR/lumina"
 
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-# Pass through --creds and other CLI flags directly to sunshine
+# Pass through --creds and other CLI flags directly to Lumina
 if [ "${1:-}" = "--creds" ]; then
     "$BINARY" "$@"
     exit $?
@@ -369,7 +416,7 @@ if [ ! -f "$PERM_FLAG" ]; then
     echo -e "${YELLOW}║  macOS permissions required (first run only)                ║${NC}"
     echo -e "${YELLOW}╠══════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${YELLOW}║                                                              ║${NC}"
-    echo -e "${YELLOW}║  Lumen needs Screen Recording and Accessibility permissions. ║${NC}"
+    echo -e "${YELLOW}║  Lumina needs Screen Recording and Accessibility permissions. ║${NC}"
     echo -e "${YELLOW}║  macOS will prompt you, or grant them manually:              ║${NC}"
     echo -e "${YELLOW}║                                                              ║${NC}"
     echo -e "${YELLOW}║  1. Screen Recording (required for video + audio)            ║${NC}"
@@ -380,27 +427,27 @@ if [ ! -f "$PERM_FLAG" ]; then
     echo ""
     # Open directly to Screen Recording privacy pane
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null
-    echo -e "  Grant ${GREEN}Screen Recording${NC} to '${GREEN}Terminal${NC}' (the app running Lumen)."
+    echo -e "  Grant ${GREEN}Screen Recording${NC} to '${GREEN}Terminal${NC}' (the app running Lumina)."
     echo -e "  Press Enter when done..."
     read -r
     # Open Accessibility pane
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null
     echo -e "  Grant ${GREEN}Accessibility${NC} to '${GREEN}Terminal${NC}'."
-    echo -e "  Press Enter to start Lumen..."
+    echo -e "  Press Enter to start Lumina..."
     read -r
     # Mark permissions as configured so we don't show this again
     touch "$PERM_FLAG"
 fi
 
-echo -e "${GREEN}Starting Lumen...${NC}"
+echo -e "${GREEN}Starting Lumina...${NC}"
 echo "  Web UI: https://localhost:47990"
 echo ""
 
 exec "$BINARY" "$@"
 LAUNCHER
-chmod +x "$BIN_DIR/lumen"
+chmod +x "$BIN_DIR/lumina"
 
-ok "Installed launcher to $BIN_DIR/lumen"
+ok "Installed launcher to $BIN_DIR/lumina"
 
 # ─── Post-install ───────────────────────────────────────────────────────────────
 
@@ -415,15 +462,15 @@ fi
 
 echo ""
 echo "  ────────────────────────────────────────────────────"
-echo -e "  ${GREEN}Lumen installed successfully!${NC}"
+echo -e "  ${GREEN}Lumina installed successfully!${NC}"
 echo "  ────────────────────────────────────────────────────"
 echo ""
-echo "  Start Lumen:"
-echo -e "    ${GREEN}lumen${NC}"
+echo "  Start Lumina:"
+echo -e "    ${GREEN}lumina${NC}"
 echo ""
 echo "  Or if ~/.local/bin isn't in your PATH:"
 echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-echo "    lumen"
+echo "    lumina"
 echo ""
 echo "  Web UI: https://localhost:47990"
 echo ""
@@ -452,5 +499,5 @@ fi
 
 echo ""
 echo "  Config:  $CONFIG_DIR/sunshine.conf"
-echo "  Logs:    lumen 2>&1 | tee ~/lumen.log"
+echo "  Logs:    lumina 2>&1 | tee ~/lumina.log"
 echo ""

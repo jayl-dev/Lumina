@@ -4,7 +4,7 @@
 
 set -e
 
-package_name=org.macports.Sunshine
+package_name=org.macports.Lumina
 
 echo "Removing files now..."
 FILES=$(pkgutil --files $package_name --only-files)
@@ -16,7 +16,7 @@ for file in ${FILES}; do
 done
 
 echo "Removing directories now..."
-DIRECTORIES=$(pkgutil --files org.macports.Sunshine --only-dirs)
+DIRECTORIES=$(pkgutil --files org.macports.Lumina --only-dirs)
 
 for dir in ${DIRECTORIES}; do
     dir="/$dir"
@@ -35,7 +35,7 @@ for dir in ${DIRECTORIES}; do
     fi
 done
 
-echo "Forgetting Sunshine..."
+echo "Forgetting Lumina..."
 pkgutil --forget $package_name
 
-echo "Sunshine has been uninstalled..."
+echo "Lumina has been uninstalled..."

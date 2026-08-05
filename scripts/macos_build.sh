@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Default value for arguments
 num_processors=$(sysctl -n hw.ncpu)
-publisher_name="LizardByte"
-publisher_website="https://app.lizardbyte.dev"
-publisher_issue_url="https://app.lizardbyte.dev/support"
+publisher_name="jayl-dev"
+publisher_website="https://github.com/jayl-dev/Lumina"
+publisher_issue_url="https://github.com/jayl-dev/Lumina/issues"
 step="all"
 build_docs="ON"
 build_type="Release"
@@ -118,7 +118,7 @@ function run_step_build() {
   echo "*** To complete installation, run:"
   echo
   echo "  sudo make -C \"${build_dir}\" install"
-  echo "  /usr/local/bin/sunshine"
+  echo "  /usr/local/bin/lumina"
   return 0
 }
 

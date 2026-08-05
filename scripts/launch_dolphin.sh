@@ -1,10 +1,10 @@
 #!/bin/bash
-# Launch Dolphin and move it to the Sunshine virtual display
+# Launch Dolphin and move it to the Lumina virtual display
 
 open -a Dolphin
 sleep 3
 
-# Read virtual display ID written by Sunshine
+# Read virtual display ID written by Lumina
 VD_ID=""
 if [ -f /tmp/sunshine_vd_id ]; then
     VD_ID=$(cat /tmp/sunshine_vd_id)
@@ -17,7 +17,7 @@ fi
 
 # Get the virtual display's origin coordinates
 SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
-GET_ORIGIN="$HOME/.local/share/lumen/get_display_origin"
+GET_ORIGIN="$HOME/.local/share/lumina/get_display_origin"
 
 if [ ! -x "$GET_ORIGIN" ]; then
     echo "get_display_origin not found at $GET_ORIGIN"

@@ -12,8 +12,8 @@ import datetime
 import os
 import subprocess
 
-project_name = 'Sunshine'
-project_owner = 'LizardByte'
+project_name = 'Lumina'
+project_owner = 'jayl-dev'
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(script_dir)

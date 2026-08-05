@@ -4,20 +4,19 @@ cmake_minimum_required(VERSION 3.20)
 # `cmake_path(CONVERT ... TO_NATIVE_PATH_LIST ...)` requires 3.20
 # todo - set this conditionally
 
-project(Sunshine VERSION 0.0.0
+project(Lumina VERSION 0.0.0
         DESCRIPTION "Self-hosted game stream host for Moonlight"
-        HOMEPAGE_URL "https://app.lizardbyte.dev/Sunshine")
+        HOMEPAGE_URL "https://github.com/jayl-dev/Lumina")
 
 set(PROJECT_LICENSE "GPL-3.0-only")
 
-set(PROJECT_FQDN "dev.lizardbyte.app.Sunshine")
+set(PROJECT_FQDN "dev.jayl.lumina")
 
 set(PROJECT_BRIEF_DESCRIPTION "GameStream host for Moonlight")  # must be <= 35 characters
 
-set(PROJECT_LONG_DESCRIPTION "Offering low latency, cloud gaming server capabilities with support for AMD, Intel, \
-and Nvidia GPUs for hardware encoding. Software encoding is also available. You can connect to Sunshine from any \
-Moonlight client on a variety of devices. A web UI is provided to allow configuration, and client pairing, from \
-your favorite web browser. Pair from the local server or any mobile device.")
+set(PROJECT_LONG_DESCRIPTION "Native macOS game streaming for Apple Silicon with ScreenCaptureKit audio, automatic \
+virtual displays, VideoToolbox hardware encoding, and virtual gamepad support. Connect to Lumina from any Moonlight \
+client and manage configuration and pairing through the web UI.")
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "Setting build type to 'Release' as none was specified.")
