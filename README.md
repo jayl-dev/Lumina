@@ -25,7 +25,7 @@ Upstream Sunshine has significant issues on macOS:
 
 ## Features
 
-- **Zero-config system audio** — ScreenCaptureKit captures all desktop audio natively. No BlackHole, no Soundflower, no virtual audio devices to install or configure.
+- **Zero-config system audio** — ScreenCaptureKit captures all desktop audio natively. Core Audio Tap is available as an opt-in experiment with `audio_sink = audiotap`.
 
 - **Automatic virtual displays** — When a Moonlight client connects, Lumina creates a virtual display matching the client's requested resolution and refresh rate (e.g., 4K@60Hz). When the last client disconnects, the virtual display is destroyed. No third-party display managers needed.
 
@@ -168,6 +168,29 @@ virtual_display = enabled
 # UPnP port mapping for remote access
 upnp = enabled
 ```
+
+### Experimental Core Audio Tap
+
+Lumina includes an isolated Core Audio Tap backend for comparison with the
+ScreenCaptureKit path. It is opt-in; `audio_sink = system` remains the default
+and recommended backend. On macOS 14 or later, use:
+
+```ini
+audio_sink = audiotap
+```
+
+Then restart Lumina. Compare the two backends for:
+
+| Area | ScreenCaptureKit (`system`) | Core Audio Tap (`audiotap`, experimental) |
+|---|---|---|
+| Latency | Stable minimal SCStream audio path | Potentially lower, direct Core Audio callback |
+| System audio | Reliable with Screen Recording permission | Requires macOS 14+ and Core Audio tap permission/security support |
+| Microphone mixing | Existing Lumina microphone/device path | Captures the system mix; use a configured device when microphone input is needed |
+| Reconnects | Existing ScreenCaptureKit restart handling | Aggregate-device/tap lifecycle; test sleep, display changes, and reconnects carefully |
+
+If `audiotap` cannot initialize, Lumina logs the failure and does not silently
+switch backends, keeping comparisons unambiguous. Restore `audio_sink = system`
+to return to the production ScreenCaptureKit path.
 
 ### Adding Apps (apps.json)
 
@@ -379,8 +402,8 @@ Moonlight Client connects (e.g. 1920x1080@60Hz)
 
 | File | Change |
 |------|--------|
-| `src/platform/macos/av_audio.m` | Updated AVFoundation device discovery API for macOS 14+ (`AVCaptureDeviceTypeMicrophone`, `AVCaptureDeviceTypeExternal`) with backward compatibility |
-| `src/platform/macos/microphone.mm` | Unified audio source selection: ScreenCaptureKit → BlackHole → AVFoundation fallback chain |
+| `src/platform/macos/av_audio.mm` | AVFoundation capture plus the isolated macOS 14+ Core Audio Tap implementation |
+| `src/platform/macos/microphone.mm` | Unified audio source selection with opt-in `audio_sink = audiotap` experiment |
 | `src/platform/macos/display.mm` | Virtual display detection and preferential capture; synthetic dummy frame for encoder probing (avoids capture timeout) |
 | `src/platform/macos/input.mm` | Dynamic virtual display targeting — mouse/keyboard input redirected to virtual display coordinates |
 | `src/platform/macos/sc_capture.h` / `.m` | Added frame caching and re-delivery for ScreenCaptureKit idle-frame handling |

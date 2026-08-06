@@ -34,9 +34,8 @@ namespace platf {
 
       int wait_count = 0;
       while (length < sample_size * sizeof(float)) {
-        [av_audio_capture.samplesArrivedSignal lock];
-        [av_audio_capture.samplesArrivedSignal waitUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
-        [av_audio_capture.samplesArrivedSignal unlock];
+        dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC);
+        dispatch_semaphore_wait(av_audio_capture->audioSemaphore, timeout);
         byteSampleBuffer = TPCircularBufferTail(&av_audio_capture->audioSampleBuffer, &length);
         // After 500ms of no data, return timeout so the caller can check shutdown_event
         if (++wait_count > 5 && length < sample_size * sizeof(float)) {
@@ -119,11 +118,27 @@ namespace platf {
         audio_sink = config::audio.sink.c_str();
       }
 
-      // Check if user wants system audio or has no sink specified
+      // ScreenCaptureKit remains Lumina's default system-audio backend.
       bool want_system_audio = config::audio.sink.empty() ||
                                strcasecmp(audio_sink, "system") == 0 ||
                                strcasecmp(audio_sink, "desktop") == 0 ||
                                strcasecmp(audio_sink, "screencapturekit") == 0;
+
+      // Core Audio Tap is opt-in while it is being evaluated against
+      // ScreenCaptureKit. Use audio_sink=audiotap to test it.
+      if (strcasecmp(audio_sink, "audiotap") == 0) {
+        auto tap_mic = std::make_unique<av_mic_t>();
+        tap_mic->av_audio_capture = [[AVAudio alloc] init];
+        // Preserve normal host playback while the tap observes the mix.
+        tap_mic->av_audio_capture.hostAudioEnabled = YES;
+        if ([tap_mic->av_audio_capture setupSystemTap:sample_rate frameSize:frame_size channels:channels] == 0) {
+          BOOST_LOG(info) << "System audio capture enabled via Core Audio Tap (experimental)"sv;
+          return tap_mic;
+        }
+        BOOST_LOG(error) << "Core Audio Tap setup failed; audio_sink=audiotap is unavailable"sv;
+        [tap_mic->av_audio_capture release];
+        return nullptr;
+      }
 
       // Try ScreenCaptureKit for system audio (macOS 12.3+)
       if (want_system_audio) {
@@ -196,6 +211,9 @@ namespace platf {
     }
 
     bool is_sink_available(const std::string &sink) override {
+      if (sink == "audiotap") {
+        return [[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:((NSOperatingSystemVersion) {14, 0, 0})];
+      }
       // Check for ScreenCaptureKit availability
       if (sink.empty() || sink == "system" || sink == "desktop" || sink == "screencapturekit") {
         if (@available(macOS 12.3, *)) {
