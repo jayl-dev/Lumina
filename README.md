@@ -105,6 +105,27 @@ Or if `~/.local/bin` isn't in your PATH:
 ~/.local/bin/lumina
 ```
 
+### Running the Command-Line ZIP
+
+The macOS ZIP distribution is intentionally unsigned and contains `bin/lumina`,
+`bin/vd_helper`, the assets, and `hid_entitlements.plist`. It can be used
+without changing macOS security settings: streaming, the admin web UI, audio,
+keyboard, mouse, and virtual-display features continue to work. Virtual HID
+gamepad emulation is the only feature that requires the optional security
+configuration in [Gamepad Setup](#gamepad-setup-optional).
+
+If Gatekeeper has added a quarantine attribute to the extracted archive, remove
+it from the extracted directory before launching:
+
+```bash
+xattr -dr com.apple.quarantine Lumina
+cd Lumina
+./bin/lumina
+```
+
+Removing quarantine does not enable virtual gamepad support; it only permits the
+unsigned command-line binaries to launch.
+
 ### Pair with Moonlight
 
 1. Open the Lumina web UI at **https://localhost:47990**
@@ -204,6 +225,12 @@ macOS restricts the creation of virtual HID devices to prevent malicious softwar
    codesign --sign - --force ~/.local/share/lumina/vd_helper
    ```
 
+   For a ZIP extracted in the current directory, use:
+   ```bash
+   codesign --force --sign - --entitlements hid_entitlements.plist bin/vd_helper
+   codesign --force --sign - --entitlements hid_entitlements.plist bin/lumina
+   ```
+
 That's it. The gamepad will now appear in any application as a generic USB controller. You can verify it's working by connecting from Moonlight with a controller and checking System Information > USB.
 
 ### Important Notes
@@ -213,6 +240,7 @@ That's it. The gamepad will now appear in any application as a generic USB contr
 - **The `lumina` launcher auto-signs on every launch** — the manual step above is only needed if you bypass the launcher
 - **To re-enable AMFI later:** boot into Recovery Mode and run `nvram -d boot-args`
 - **Without AMFI disabled, Lumina still works fully** — you just won't have gamepad support. Keyboard, mouse, virtual displays, audio, and all other features work normally.
+- **Without signing the ZIP binaries, Lumina still launches normally** when macOS permits unsigned execution; only virtual HID gamepad emulation is unavailable. If Gatekeeper blocks launch, remove the quarantine attribute as shown above.
 - **Security note:** Disabling AMFI reduces one layer of macOS security. Only do this if you understand the implications and need gamepad support.
 
 ---
