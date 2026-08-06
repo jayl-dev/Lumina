@@ -20,6 +20,10 @@ endif()
 # ScreenCaptureKit for system audio capture (macOS 12.3+)
 FIND_LIBRARY(SCREEN_CAPTURE_KIT_LIBRARY ScreenCaptureKit)
 
+# Core Audio Tap experiment (macOS 14+)
+FIND_LIBRARY(AUDIO_TOOLBOX_LIBRARY AudioToolbox)
+FIND_LIBRARY(CORE_AUDIO_LIBRARY CoreAudio)
+
 # IOKit for virtual HID gamepad (IOHIDUserDevice)
 FIND_LIBRARY(IOKIT_LIBRARY IOKit)
 
@@ -32,13 +36,16 @@ list(APPEND SUNSHINE_EXTERNAL_LIBRARIES
         ${FOUNDATION_LIBRARY}
         ${VIDEO_TOOLBOX_LIBRARY}
         ${SCREEN_CAPTURE_KIT_LIBRARY}
+        ${AUDIO_TOOLBOX_LIBRARY}
+        ${CORE_AUDIO_LIBRARY}
         ${IOKIT_LIBRARY})
 
 set(APPLE_PLIST_FILE "${SUNSHINE_SOURCE_ASSETS_DIR}/macos/assets/Info.plist")
 
 set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_audio.h"
-        "${CMAKE_SOURCE_DIR}/src/platform/macos/av_audio.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/av_audio.mm"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/coreaudio_helpers.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_img_t.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_video.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_video.m"

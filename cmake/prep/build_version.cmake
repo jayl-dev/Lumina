@@ -27,7 +27,7 @@ if((DEFINED ENV{BRANCH}) AND (DEFINED ENV{BUILD_VERSION}))  # cmake-lint: disabl
         set(CMAKE_PROJECT_VERSION ${PROJECT_VERSION})  # cpack will use this to set the binary versions
     endif()
 else()
-    # Generate Sunshine Version based of the git tag
+    # Generate Sunshine version metadata for a local build
     # https://github.com/nocnokneo/cmake-git-versioning-example/blob/master/LICENSE
     find_package(Git)
     if(GIT_EXECUTABLE)
@@ -47,17 +47,28 @@ else()
                 RESULT_VARIABLE GIT_DESCRIBE_ERROR_CODE
                 OUTPUT_STRIP_TRAILING_WHITESPACE
         )
+        # Use the release version when this commit is checked out at a tag.
+        execute_process(
+                COMMAND ${GIT_EXECUTABLE} describe --tags --exact-match HEAD
+                OUTPUT_VARIABLE GIT_EXACT_TAG
+                RESULT_VARIABLE GIT_EXACT_TAG_ERROR_CODE
+                ERROR_QUIET
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
         # Check if Dirty
         execute_process(
-                COMMAND ${GIT_EXECUTABLE} diff --quiet --exit-code
+                COMMAND ${GIT_EXECUTABLE} diff-index --quiet HEAD --
                 RESULT_VARIABLE GIT_IS_DIRTY
                 OUTPUT_STRIP_TRAILING_WHITESPACE
         )
         if(NOT GIT_DESCRIBE_ERROR_CODE)
             MESSAGE("Sunshine Branch: ${GIT_DESCRIBE_BRANCH}")
-            if(NOT GIT_DESCRIBE_BRANCH STREQUAL "master")
+            if(NOT GIT_EXACT_TAG_ERROR_CODE)
+                string(REGEX REPLACE "^v" "" PROJECT_VERSION ${GIT_EXACT_TAG})
+                MESSAGE("Sunshine Release: ${PROJECT_VERSION}")
+            else()
                 set(PROJECT_VERSION ${PROJECT_VERSION}-${GIT_DESCRIBE_VERSION})
-                MESSAGE("Sunshine Version: ${GIT_DESCRIBE_VERSION}")
+                MESSAGE("Sunshine Commit: ${GIT_DESCRIBE_VERSION}")
             endif()
             if(GIT_IS_DIRTY)
                 set(PROJECT_VERSION ${PROJECT_VERSION}-dirty)

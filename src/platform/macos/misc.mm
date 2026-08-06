@@ -93,7 +93,7 @@ namespace platf {
       homedir = getpwuid(geteuid())->pw_dir;
     }
 
-    return fs::path {homedir} / ".config/sunshine"sv;
+    return fs::path {homedir} / ".config/lumina"sv;
   }
 
   using ifaddr_t = util::safe_ptr<ifaddrs, freeifaddrs>;

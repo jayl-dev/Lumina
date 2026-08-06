@@ -5,7 +5,7 @@ class Sunshine < Formula
   CUDA_FORMULA = "cuda@#{CUDA_VERSION}".freeze
   GCC_VERSION = "14".freeze
   GCC_FORMULA = "gcc@#{GCC_VERSION}".freeze
-  IS_UPSTREAM_REPO = ENV.fetch("GITHUB_REPOSITORY", "") == "LizardByte/Sunshine"
+  IS_SUNSHINE_REPO = ENV.fetch("GITHUB_REPOSITORY", "") == "jayl-dev/Lumina"
 
   desc "@PROJECT_DESCRIPTION@"
   homepage "@PROJECT_HOMEPAGE_URL@"
@@ -97,7 +97,6 @@ class Sunshine < Formula
     depends_on "wayland"
   end
 
-  conflicts_with "sunshine-beta", because: "sunshine and sunshine-beta cannot be installed at the same time"
   fails_with :clang do
     build 1400
     cause "Requires C++23 support"
@@ -132,14 +131,14 @@ class Sunshine < Formula
       -DOPENSSL_ROOT_DIR=#{Formula["openssl"].opt_prefix}
       -DSUNSHINE_ASSETS_DIR=sunshine/assets
       -DSUNSHINE_BUILD_HOMEBREW=ON
-      -DSUNSHINE_PUBLISHER_NAME='LizardByte'
-      -DSUNSHINE_PUBLISHER_WEBSITE='https://app.lizardbyte.dev'
-      -DSUNSHINE_PUBLISHER_ISSUE_URL='https://app.lizardbyte.dev/support'
+      -DSUNSHINE_PUBLISHER_NAME='jayl-dev'
+      -DSUNSHINE_PUBLISHER_WEBSITE='https://github.com/jayl-dev/Lumina'
+      -DSUNSHINE_PUBLISHER_ISSUE_URL='https://github.com/jayl-dev/Lumina/issues'
     ]
   end
 
   def add_test_args(args)
-    if IS_UPSTREAM_REPO
+    if IS_SUNSHINE_REPO
       args << "-DBUILD_TESTS=ON"
       ohai "Building tests: enabled"
     else
@@ -225,10 +224,10 @@ class Sunshine < Formula
   end
 
   def install_platform_specific_files
-    bin.install "build/tests/test_sunshine" if IS_UPSTREAM_REPO
+    bin.install "build/tests/test_sunshine" if IS_SUNSHINE_REPO
 
     # codesign the binary on intel macs
-    system "codesign", "-s", "-", "--force", "--deep", bin/"sunshine" if OS.mac? && Hardware::CPU.intel?
+    system "codesign", "-s", "-", "--force", "--deep", bin/"lumina" if OS.mac? && Hardware::CPU.intel?
 
     bin.install "src_assets/linux/misc/postinst" if OS.linux?
   end
@@ -240,7 +239,7 @@ class Sunshine < Formula
   end
 
   service do
-    run [opt_bin/"sunshine", "~/.config/sunshine/sunshine.conf"]
+    run [opt_bin/"lumina", "~/.config/lumina/sunshine.conf"]
   end
 
   def post_install
@@ -253,7 +252,7 @@ class Sunshine < Formula
 
     if OS.mac?
       opoo <<~EOS
-        Sunshine can only access microphones on macOS due to system limitations.
+        Lumina can only access microphones on macOS due to system limitations.
         To stream system audio use "Soundflower" or "BlackHole".
 
         Gamepads are not currently supported on macOS.
@@ -266,15 +265,15 @@ class Sunshine < Formula
       Thanks for installing @PROJECT_NAME@!
 
       To get started, review the documentation at:
-        https://docs.lizardbyte.dev/projects/sunshine
+        https://github.com/jayl-dev/Lumina
     EOS
   end
 
   test do
     # test that the binary runs at all
-    system bin/"sunshine", "--version"
+    system bin/"lumina", "--version"
 
-    if IS_UPSTREAM_REPO && ENV.fetch("HOMEBREW_BOTTLE_BUILD", "false") != "true"
+    if IS_SUNSHINE_REPO && ENV.fetch("HOMEBREW_BOTTLE_BUILD", "false") != "true"
       # run the test suite
       system bin/"test_sunshine", "--gtest_color=yes", "--gtest_output=xml:tests/test_results.xml"
       assert_path_exists File.join(testpath, "tests", "test_results.xml")

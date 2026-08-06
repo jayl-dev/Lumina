@@ -70,7 +70,7 @@
         </div>
       </div>
     </div>
-    <!-- Restart Sunshine -->
+    <!-- Restart Lumina -->
     <div class="card my-4">
       <div class="card-body">
         <h2 id="restart">{{ $t('troubleshooting.restart_sunshine') }}</h2>
@@ -135,8 +135,17 @@
       </div>
       <ul class="list-group list-group-flush" v-if="clients && clients.length > 0">
         <li v-for="client in clients" :key="client.uuid" class="list-group-item d-flex align-items-center">
-          <div class="flex-grow-1">{{ client.name !== "" ? client.name : $t('troubleshooting.unpair_single_unknown') }}</div>
-          <button class="btn btn-danger ms-auto" @click="unpairSingle(client.uuid)">
+          <div class="flex-grow-1">
+            {{ client.name !== "" ? client.name : $t('troubleshooting.unpair_single_unknown') }}
+          </div>
+          <div class="form-check form-switch ms-2 mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   :id="'toggle-' + client.uuid"
+                   :checked="client.enabled"
+                   :aria-checked="client.enabled.toString()"
+                   @change="toggleClient(client.uuid, !client.enabled)">
+          </div>
+          <button class="btn btn-danger btn-sm ms-2" @click="unpairSingle(client.uuid)">
             <trash-2 :size="18" class="icon"></trash-2>
           </button>
         </li>
@@ -177,7 +186,8 @@
                   <chevrons-down :size="18" class="icon"></chevrons-down>
                 </button>
                 <button class="log-nav-btn" @click="copyLogs" title="Copy Logs">
-                  <copy :size="18" class="icon"></copy>
+                  <check :size="18" class="icon text-success" v-if="logsCopied"></check>
+                  <copy :size="18" class="icon" v-else></copy>
                 </button>
               </div>
             </div>
@@ -192,9 +202,11 @@
     import { createApp } from 'vue'
     import { initApp } from './init'
     import Navbar from './Navbar.vue'
+    import { apiFetch } from './fetch_utils'
     import {
       AlertCircle,
       AlertTriangle,
+      Check,
       CheckCircle,
       ChevronDown,
       ChevronUp,
@@ -214,6 +226,7 @@
         Navbar,
         AlertCircle,
         AlertTriangle,
+        Check,
         CheckCircle,
         ChevronDown,
         ChevronUp,
@@ -234,6 +247,7 @@
           closeAppStatus: null,
           ddResetPressed: false,
           ddResetStatus: null,
+          logsCopied: false,
           logs: 'Loading...',
           logFilter: null,
           logInterval: null,
@@ -302,7 +316,7 @@
             if (!raw) continue;
 
             // Determine level based on the *first* level token in the entry.
-            // Sunshine logs are typically: "[ts]: Level: message".
+            // Lumina logs are typically: "[ts]: Level: message".
             // Some messages may contain additional embedded timestamps, but we treat
             // those as part of the entry content.
             let level = 'Info';
@@ -375,6 +389,7 @@
         }
       },
       created() {
+        this._logsCopyTimeout = null;
         fetch("/api/config")
           .then((r) => r.json())
           .then((r) => {
@@ -394,6 +409,7 @@
       },
       beforeDestroy() {
         clearInterval(this.logInterval);
+        clearTimeout(this._logsCopyTimeout);
       },
       methods: {
         refreshLogs() {
@@ -405,7 +421,7 @@
         },
         closeApp() {
           this.closeAppPressed = true;
-          fetch("./api/apps/close", {
+          apiFetch("./api/apps/close", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -421,7 +437,7 @@
         },
         unpairAll() {
           this.unpairAllPressed = true;
-          fetch("./api/clients/unpair-all", {
+          apiFetch("./api/clients/unpair-all", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -438,7 +454,7 @@
             });
         },
         unpairSingle(uuid) {
-          fetch("./api/clients/unpair", {
+          apiFetch("./api/clients/unpair", {
             method: "POST",
             headers: {
               'Content-Type': 'application/json'
@@ -446,6 +462,17 @@
             body: JSON.stringify({ uuid })
           }).then(() => {
             this.showApplyMessage = true;
+            this.refreshClients();
+            });
+        },
+        toggleClient(uuid, enabled) {
+          apiFetch("./api/clients/update", {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ uuid, enabled })
+          }).then(() => {
             this.refreshClients();
           });
         },
@@ -468,14 +495,27 @@
         },
         copyLogs() {
           // Copy the filtered view if a filter is active.
-          navigator.clipboard.writeText(this.actualLogs);
+          navigator.clipboard.writeText(this.actualLogs).then(() => {
+            // Clear any existing reset timer (handles rapid successive clicks).
+            if (this._logsCopyTimeout) clearTimeout(this._logsCopyTimeout);
+
+            // Show checkmark feedback.
+            this.logsCopied = true;
+
+            // Revert icon after 2 seconds.
+            this._logsCopyTimeout = setTimeout(() => {
+              this.logsCopied = false;
+            }, 2000);
+          }).catch((err) => {
+            console.error('Failed to copy logs:', err);
+          });
         },
         restart() {
           this.restartPressed = true;
           setTimeout(() => {
             this.restartPressed = false;
           }, 5000);
-          fetch("./api/restart", {
+          apiFetch("./api/restart", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -484,7 +524,7 @@
         },
         ddResetPersistence() {
           this.ddResetPressed = true;
-          fetch("/api/reset-display-device-persistence", {
+          apiFetch("/api/reset-display-device-persistence", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
@@ -518,7 +558,7 @@
           this.vigemBusInstallPressed = true;
           this.vigemBusInstallStatus = null;
           this.vigemBusInstallError = null;
-          fetch("/api/vigembus/install", {
+          apiFetch("/api/vigembus/install", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"

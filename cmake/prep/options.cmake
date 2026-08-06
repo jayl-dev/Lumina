@@ -3,7 +3,7 @@ set(SUNSHINE_PUBLISHER_NAME "Third Party Publisher"
         CACHE STRING "The name of the publisher (not developer) of the application.")
 set(SUNSHINE_PUBLISHER_WEBSITE ""
         CACHE STRING "The URL of the publisher's website.")
-set(SUNSHINE_PUBLISHER_ISSUE_URL "https://app.lizardbyte.dev/support"
+set(SUNSHINE_PUBLISHER_ISSUE_URL "https://github.com/jayl-dev/Lumina/issues"
         CACHE STRING "The URL of the publisher's support site or issue tracker.
         If you provide a modified version of Sunshine, we kindly request that you use your own url.")
 
@@ -42,7 +42,7 @@ if(APPLE)
     option(SUNSHINE_CONFIGURE_PORTFILE
             "Configure macOS Portfile. Recommended to use with SUNSHINE_CONFIGURE_ONLY" OFF)
     option(SUNSHINE_PACKAGE_MACOS
-            "Should only be used when creating a macOS package/dmg." OFF)
+            "Create a portable macOS command-line package." OFF)
 elseif(UNIX)  # Linux
     option(SUNSHINE_BUILD_APPIMAGE
             "Enable an AppImage build." OFF)

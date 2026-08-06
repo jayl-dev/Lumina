@@ -312,6 +312,9 @@ namespace video {
         avcodec_ctx {std::move(avcodec_ctx)},
         device {std::move(encode_device)},
         inject {inject} {
+      if (this->avcodec_ctx && this->avcodec_ctx->codec && this->avcodec_ctx->codec->name) {
+        coalesce_idr_requests = std::string_view {this->avcodec_ctx->codec->name}.find("_videotoolbox") != std::string_view::npos;
+      }
     }
 
     avcodec_encode_session_t(avcodec_encode_session_t &&other) noexcept = default;
@@ -333,10 +336,13 @@ namespace video {
       device = std::move(other.device);
       avcodec_ctx = std::move(other.avcodec_ctx);
       replacements = std::move(other.replacements);
+      pending_frame_timestamps = std::move(other.pending_frame_timestamps);
       sps = std::move(other.sps);
       vps = std::move(other.vps);
 
       inject = other.inject;
+      coalesce_idr_requests = other.coalesce_idr_requests;
+      idr_in_flight = other.idr_in_flight;
 
       return *this;
     }
@@ -349,10 +355,16 @@ namespace video {
     }
 
     void request_idr_frame() override {
+      if (coalesce_idr_requests && idr_in_flight) {
+        BOOST_LOG(debug) << "Coalescing IDR request while VideoToolbox keyframe is pending"sv;
+        return;
+      }
+
       if (device && device->frame) {
         auto &frame = device->frame;
         frame->pict_type = AV_PICTURE_TYPE_I;
         frame->flags |= AV_FRAME_FLAG_KEY;
+        idr_in_flight = coalesce_idr_requests;
       }
     }
 
@@ -377,6 +389,12 @@ namespace video {
     // calls ago, so the timestamp must be looked up by the packet's pts rather
     // than assumed to belong to the frame just submitted.
     std::map<int64_t, std::chrono::steady_clock::time_point> pending_frame_timestamps;
+
+    // VideoToolbox returns encoded packets asynchronously. Avoid submitting
+    // several expensive keyframes while the first requested IDR is still in
+    // flight through the encoder.
+    bool coalesce_idr_requests {false};
+    bool idr_in_flight {false};
 
     std::vector<packet_raw_t::replace_t> replacements;
 
@@ -1472,10 +1490,14 @@ namespace video {
       }
 
       if (av_packet->flags & AV_PKT_FLAG_KEY) {
-        BOOST_LOG(debug) << "Frame "sv << frame_nr << ": IDR Keyframe (AV_FRAME_FLAG_KEY)"sv;
+        BOOST_LOG(debug) << "Frame "sv << av_packet->pts << ": IDR Keyframe (AV_FRAME_FLAG_KEY)"sv;
+        session.idr_in_flight = false;
       }
 
-      if ((frame->flags & AV_FRAME_FLAG_KEY) && !(av_packet->flags & AV_PKT_FLAG_KEY)) {
+      // Async encoders often return an older packet immediately after an IDR
+      // frame is submitted. Only diagnose a missed keyframe when the returned
+      // packet actually belongs to the frame submitted by this call.
+      if ((frame->flags & AV_FRAME_FLAG_KEY) && av_packet->pts == frame_nr && !(av_packet->flags & AV_PKT_FLAG_KEY)) {
         BOOST_LOG(error) << "Encoder did not produce IDR frame when requested!"sv;
       }
 
@@ -1990,9 +2012,9 @@ namespace video {
     });
 
     // set max frame time based on client-requested target framerate.
-    double minimum_fps_target = (config::video.minimum_fps_target > 0.0) ? config::video.minimum_fps_target : config.framerate;
+    double minimum_fps_target = (config::video.minimum_fps_target > 0.0) ? config::video.minimum_fps_target : (config.framerate / 2);
     std::chrono::duration<double, std::milli> max_frametime {1000.0 / minimum_fps_target};
-    BOOST_LOG(info) << "Minimum FPS target set to ~"sv << (minimum_fps_target / 2) << "fps ("sv << max_frametime.count() * 2 << "ms)"sv;
+    BOOST_LOG(info) << "Minimum FPS target set to ~"sv << minimum_fps_target << "fps ("sv << max_frametime.count() << "ms)"sv;
 
     auto shutdown_event = mail->event<bool>(mail::shutdown);
     auto packets = mail::man->queue<packet_t>(mail::video_packets);
@@ -2080,7 +2102,7 @@ namespace video {
     float scalar_tpcoords = 1.0f;
     int display_env_logical_width = 0;
     int display_env_logical_height = 0;
-    if (display->logical_width && display->logical_height && display->env_logical_width && display->env_logical_height) {
+    if (display->logical_width > 0 && display->logical_height > 0 && display->env_logical_width > 0 && display->env_logical_height > 0) {
       float lwd = display->logical_width;
       float lhd = display->logical_height;
       scalar_tpcoords = std::fminf(wd / lwd, hd / lhd);
