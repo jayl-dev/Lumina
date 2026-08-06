@@ -2,9 +2,15 @@
 
 **Native macOS game streaming, built for Apple Silicon.**
 
-Lumina is a fork of [Sunshine](https://github.com/LizardByte/Sunshine) that fixes macOS support from the ground up. Stream your Mac's display to any [Moonlight](https://moonlight-stream.org/) client — TV, phone, tablet, another PC — with native system audio, automatic virtual display management, and hardware-accelerated encoding.
+Lumina is a fork of [Lumen](https://github.com/trollzem/Lumen) (originally [Sunshine](https://github.com/LizardByte/Sunshine)) that fixes macOS support from the ground up. Stream your Mac's display to any [Moonlight](https://moonlight-stream.org/) client — TV, phone, tablet, another PC — with native system audio, automatic virtual display management, and hardware-accelerated encoding.
 
 Tested on **M4 Mac Mini (16GB RAM)** — **1ms encode-to-network latency** over local network with H.264 VideoToolbox encoding.
+
+---
+
+## About this Fork
+
+Lumina originated as a fork of [Lumen](https://github.com/trollzem/Lumen). It builds upon Lumen's foundation by resolving lingering controller issues and integrating relevant upstream enhancements from the original Sunshine repository. The project was rebranded to **Lumina** to reflect its divergence from Lumen, as it incorporates further independent updates, fixes, and improvements.
 
 ---
 
@@ -495,7 +501,8 @@ Lumina enables `PARALLEL_ENCODING` for the VideoToolbox encoder, which decouples
 
 ## Acknowledgments
 
-- [LizardByte/Sunshine](https://github.com/LizardByte/Sunshine) — the upstream project this is forked from
+- [trollzem/Lumen](https://github.com/trollzem/Lumen) — the project this is directly forked from
+- [LizardByte/Sunshine](https://github.com/LizardByte/Sunshine) — the original upstream project
 - [Moonlight](https://moonlight-stream.org/) — the open-source game streaming client
 - [TPCircularBuffer](https://github.com/michaeltyson/TPCircularBuffer) — lock-free ring buffer used for audio delivery
 
