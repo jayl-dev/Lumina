@@ -292,16 +292,37 @@ namespace platf {
       }
     }
 
-    execv(executable.data(), lifetime::get_argv());
+    @autoreleasepool {
+      NSTask *task = [[NSTask alloc] init];
+      [task setLaunchPath:[NSString stringWithUTF8String:executable.data()]];
 
-    const int error = errno;
-    std::fprintf(
-      stderr,
-      "Lumina restart failed: execv(%s): %s\n",
-      executable.data(),
-      std::strerror(error)
-    );
-    return EXIT_FAILURE;
+      NSMutableArray *args = [NSMutableArray array];
+      char **argv = lifetime::get_argv();
+      if (argv != nullptr && argv[0] != nullptr) {
+        // Skip argv[0] as it is the executable path
+        for (int i = 1; argv[i] != nullptr; i++) {
+          [args addObject:[NSString stringWithUTF8String:argv[i]]];
+        }
+      }
+      [task setArguments:args];
+
+      NSError *error = nil;
+      if (@available(macOS 10.13, *)) {
+        if (![task launchAndReturnError:&error]) {
+          std::fprintf(stderr, "Lumina restart failed: NSTask launch error: %s\n", [[error localizedDescription] UTF8String]);
+          return EXIT_FAILURE;
+        }
+      } else {
+        @try {
+          [task launch];
+        } @catch (NSException *e) {
+          std::fprintf(stderr, "Lumina restart failed: NSTask exception: %s\n", [[e reason] UTF8String]);
+          return EXIT_FAILURE;
+        }
+      }
+    }
+
+    return EXIT_SUCCESS;
   }
 
   void restart() {
