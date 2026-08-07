@@ -22,3 +22,6 @@ node_modules/
 
 # Local installer customization
 /install.sh
+
+# IDE and language server caches
+.cache/
