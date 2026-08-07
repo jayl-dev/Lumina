@@ -38,22 +38,23 @@ echo "using icon sizes:"
 # shellcheck disable=SC2068  # intentionally word split
 echo ${icon_sizes[@]}
 
-src_vectors=("../../src_assets/common/assets/web/public/images/sunshine-locked.svg"
+src_images=("../../src_assets/common/assets/web/public/images/sunshine-locked.svg"
              "../../src_assets/common/assets/web/public/images/sunshine-pausing.svg"
              "../../src_assets/common/assets/web/public/images/sunshine-playing.svg"
-             "../../sunshine.svg")
+             "../../sunshine.png")
 
-echo "using sources vectors:"
+echo "using source images:"
 # shellcheck disable=SC2068  # intentionally word split
-echo ${src_vectors[@]}
+echo ${src_images[@]}
 
-for src_vector in "${src_vectors[@]}"; do
-    file_name=$(basename "${src_vector}" .svg)
+for src_image in "${src_images[@]}"; do
+    filename_with_ext=$(basename "${src_image}")
+    file_name="${filename_with_ext%.*}"
     png_files=()
     for icon_size in "${icon_sizes[@]}"; do
         png_file="${file_name}${icon_size}.png"
         echo "converting ${png_file}"
-        inkscape -w "${icon_size}" -h "${icon_size}" "${src_vector}" --export-filename "${png_file}" &&
+        inkscape -w "${icon_size}" -h "${icon_size}" "${src_image}" --export-filename "${png_file}" &&
         ./oxipng -o max --strip safe --alpha "${png_file}" &&
         png_files+=("${png_file}")
     done
