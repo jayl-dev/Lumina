@@ -468,10 +468,14 @@ const KeyCodeMap kKeyCodesMap[] = {
 
     // Use virtual display if active, otherwise configured display
     auto vd_id = virtual_display_get_id();
-    const auto display = vd_id ? (CGDirectDisplayID)vd_id : macos_input->display;
+    auto display = vd_id ? (CGDirectDisplayID)vd_id : macos_input->display;
 
     // get display bounds for current display
-    const CGRect display_bounds = CGDisplayBounds(display);
+    CGRect display_bounds = CGDisplayBounds(display);
+    if (display_bounds.size.width == 0 || display_bounds.size.height == 0) {
+      display = CGMainDisplayID();
+      display_bounds = CGDisplayBounds(display);
+    }
 
     // limit mouse to current display bounds
     const auto location = CGPoint {

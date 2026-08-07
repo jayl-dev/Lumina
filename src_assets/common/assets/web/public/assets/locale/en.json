@@ -391,6 +391,8 @@
     "vk_tune_hq": "High Quality (hq)",
     "vk_tune_ll": "Low Latency (ll) (default)",
     "vk_tune_ull": "Ultra Low Latency (ull)",
+    "virtual_display": "Virtual Display (macOS only)",
+    "virtual_display_desc": "Whether to create on-demand virtual displays.",
     "virtual_sink": "Virtual Sink",
     "virtual_sink_desc": "Manually specify a virtual audio device to use. If unset, the device is chosen automatically. We strongly recommend leaving this field blank to use automatic device selection!",
     "virtual_sink_placeholder": "Steam Streaming Speakers",

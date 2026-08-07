@@ -65,6 +65,17 @@ const config = ref(props.config)
                   default="true"
         ></Checkbox>
       </template>
+      <template #macos>
+        <!-- Virtual Display -->
+        <div class="mb-3">
+          <label for="virtual_display" class="form-label">{{ $t('config.virtual_display') }}</label>
+          <select class="form-select" id="virtual_display" v-model="config.virtual_display">
+            <option value="disabled">Disabled</option>
+            <option value="enabled">Enabled</option>
+          </select>
+          <div class="form-text">{{ $t('config.virtual_display_desc') }}</div>
+        </div>
+      </template>
     </PlatformLayout>
 
     <!-- Disable Audio -->

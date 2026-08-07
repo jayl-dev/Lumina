@@ -1061,6 +1061,19 @@ namespace confighttp {
           continue;
         }
 
+        // hot-reload specific configurations that take effect on next stream
+        if (k == "virtual_display" && v.is_string()) {
+          config::video.virtual_display = v.get<std::string>();
+        } else if (k == "audio_sink" && v.is_string()) {
+          config::audio.sink = v.get<std::string>();
+        } else if (k == "max_bitrate") {
+          if (v.is_number_integer()) {
+            config::video.max_bitrate = v.get<int>();
+          } else if (v.is_string()) {
+            try { config::video.max_bitrate = std::stoi(v.get<std::string>()); } catch(...) {}
+          }
+        }
+
         // v.dump() will dump valid json, which we do not want for strings in the config, right now
         // we should migrate the config file to straight JSON and get rid of all this nonsense
         config_stream << k << " = " << (v.is_string() ? v.get<std::string>() : v.dump()) << std::endl;
