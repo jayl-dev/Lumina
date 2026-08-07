@@ -76,6 +76,16 @@ namespace lifetime {
   extern std::atomic_int desired_exit_code;
 
   /**
+   * @brief Request a graceful shutdown followed by a process restart.
+   */
+  void request_restart();
+
+  /**
+   * @brief Check whether the current shutdown was requested for a restart.
+   */
+  bool is_restart_requested();
+
+  /**
    * @brief Terminates Sunshine gracefully with the provided exit code.
    * @param exit_code The exit code to return from main().
    * @param async Specifies whether our termination will be non-blocking.

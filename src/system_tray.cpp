@@ -92,7 +92,7 @@ namespace system_tray {
     .menu =
       (struct tray_menu[]) {
         // todo - use boost/locale to translate menu strings
-        {.text = "Open Sunshine", .cb = tray_open_ui_cb},
+        {.text = "Open Lumina", .cb = tray_open_ui_cb},
         {.text = "-"},
   // Currently display device settings are only supported on Windows
   #ifdef _WIN32

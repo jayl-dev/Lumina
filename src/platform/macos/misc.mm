@@ -9,8 +9,13 @@
 #endif
 
 // standard includes
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <vector>
 
 // platform includes
 #include <arpa/inet.h>
@@ -265,31 +270,42 @@ namespace platf {
     return ::virtual_display_get_id();
   }
 
-  void restart_on_exit() {
-    char executable[2048];
-    uint32_t size = sizeof(executable);
-    if (_NSGetExecutablePath(executable, &size) < 0) {
-      BOOST_LOG(fatal) << "NSGetExecutablePath() failed: "sv << errno;
-      return;
+  int restart_process() {
+    std::vector<char> executable(1024);
+    uint32_t size = static_cast<uint32_t>(executable.size());
+    if (_NSGetExecutablePath(executable.data(), &size) < 0) {
+      executable.resize(size);
+      if (_NSGetExecutablePath(executable.data(), &size) < 0) {
+        std::fprintf(stderr, "Lumina restart failed: unable to determine the executable path\n");
+        return EXIT_FAILURE;
+      }
     }
 
-    // ASIO doesn't use O_CLOEXEC, so we have to close all fds ourselves
+    // ASIO doesn't consistently use O_CLOEXEC. Mark surviving descriptors to
+    // be closed by exec rather than closing them here: AppKit owns guarded file
+    // descriptors that terminate the process if close() is called directly.
     int openmax = (int) sysconf(_SC_OPEN_MAX);
     for (int fd = STDERR_FILENO + 1; fd < openmax; fd++) {
-      close(fd);
+      const int flags = fcntl(fd, F_GETFD);
+      if (flags >= 0) {
+        fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+      }
     }
 
-    // Re-exec ourselves with the same arguments
-    if (execv(executable, lifetime::get_argv()) < 0) {
-      BOOST_LOG(fatal) << "execv() failed: "sv << errno;
-      return;
-    }
+    execv(executable.data(), lifetime::get_argv());
+
+    const int error = errno;
+    std::fprintf(
+      stderr,
+      "Lumina restart failed: execv(%s): %s\n",
+      executable.data(),
+      std::strerror(error)
+    );
+    return EXIT_FAILURE;
   }
 
   void restart() {
-    // Gracefully clean up and restart ourselves instead of exiting
-    atexit(restart_on_exit);
-    lifetime::exit_sunshine(0, true);
+    lifetime::request_restart();
   }
 
   int set_env(const std::string &name, const std::string &value) {

@@ -115,9 +115,7 @@ void mainThreadLoop(const std::shared_ptr<safe::event_t<bool>> &shutdown_event) 
   BOOST_LOG(info) << "Main loop has exited"sv;
 }
 
-int main(int argc, char *argv[]) {
-  lifetime::argv = argv;
-
+static int run_main(int argc, char *argv[]) {
   task_pool_util::TaskPool::task_id_t force_shutdown = nullptr;
 
 #ifdef _WIN32
@@ -409,4 +407,15 @@ int main(int argc, char *argv[]) {
 #endif
 
   return lifetime::desired_exit_code;
+}
+
+int main(int argc, char *argv[]) {
+  lifetime::argv = argv;
+
+  const int exit_code = run_main(argc, argv);
+  if (lifetime::is_restart_requested()) {
+    return platf::restart_process();
+  }
+
+  return exit_code;
 }

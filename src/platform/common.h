@@ -629,6 +629,12 @@ namespace platf {
   void restart();
 
   /**
+   * @brief Replace the current process with a fresh instance after cleanup.
+   * @return A non-zero exit code if the new process could not be started.
+   */
+  int restart_process();
+
+  /**
    * @brief Set an environment variable.
    * @param name The name of the environment variable.
    * @param value The value to set the environment variable to.

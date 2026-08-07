@@ -69,6 +69,16 @@ namespace args {
 namespace lifetime {
   char **argv;
   std::atomic_int desired_exit_code;
+  std::atomic_bool restart_requested;
+
+  void request_restart() {
+    restart_requested.store(true);
+    exit_sunshine(0, true);
+  }
+
+  bool is_restart_requested() {
+    return restart_requested.load();
+  }
 
   void exit_sunshine(int exit_code, bool async) {
     // Store the exit code of the first exit_sunshine() call
