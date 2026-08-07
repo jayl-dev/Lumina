@@ -85,10 +85,6 @@ int tray_loop(int blocking) {
                                       dequeue:TRUE];
   if (event) {
     if (event.type == NSEventTypeApplicationDefined && event.subtype == QUIT_EVENT_SUBTYPE) {
-      if (statusItem) {
-        [statusBar removeStatusItem:statusItem];
-        statusItem = nil;
-      }
       return -1;
     }
 
