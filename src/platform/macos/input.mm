@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 // platform includes
@@ -67,6 +68,10 @@ namespace platf {
     gamepad_mode_e gamepad_modes[MAX_GAMEPADS] {};
     ESPGamepadLink *esp_link {};
     int esp_pads[MAX_GAMEPADS] {};  // board pad index used by each ESP-mode slot
+    // Rumble from the board arrives on the link's reader thread
+    std::mutex esp_mutex;
+    feedback_queue_t esp_feedback[MAX_GAMEPADS];
+    std::uint8_t esp_client_index[MAX_GAMEPADS] {};
     HIDGamepad *hid_gamepads[MAX_GAMEPADS] {};
     MacOSGamepad *emulation_gamepads[MAX_GAMEPADS] {};
   };
@@ -373,6 +378,14 @@ const KeyCodeMap kKeyCodesMap[] = {
         return -1;
       }
       BOOST_LOG(info) << "ESP32 gamepad board found at "sv << macos_input->esp_link.devicePath.UTF8String;
+      [macos_input->esp_link startReadingWithRumbleHandler:^(int pad, uint16_t low, uint16_t high) {
+        std::lock_guard<std::mutex> lock(macos_input->esp_mutex);
+        for (int i = 0; i < MAX_GAMEPADS; i++) {
+          if (macos_input->esp_feedback[i] && macos_input->esp_pads[i] == pad) {
+            macos_input->esp_feedback[i]->raise(gamepad_feedback_msg_t::make_rumble(macos_input->esp_client_index[i], low, high));
+          }
+        }
+      }];
     }
 
     for (int pad = 0; pad < macos_input->esp_link.padCount; pad++) {
@@ -402,7 +415,10 @@ const KeyCodeMap kKeyCodesMap[] = {
       // Prefer a real USB gamepad from the ESP32 board when one is attached
       int esp_pad = acquire_esp_pad(macos_input);
       if (esp_pad >= 0) {
+        std::lock_guard<std::mutex> lock(macos_input->esp_mutex);
         macos_input->esp_pads[i] = esp_pad;
+        macos_input->esp_feedback[i] = feedback_queue;
+        macos_input->esp_client_index[i] = id.clientRelativeIndex;
         macos_input->gamepad_modes[i] = gamepad_mode_e::ESP;
         BOOST_LOG(info) << "Gamepad "sv << i << " allocated (ESP32 USB gamepad "sv << esp_pad << ")"sv;
         return i;
@@ -440,9 +456,13 @@ const KeyCodeMap kKeyCodesMap[] = {
     }
 
     switch (macos_input->gamepad_modes[nr]) {
-      case gamepad_mode_e::ESP:
+      case gamepad_mode_e::ESP: {
         [macos_input->esp_link sendNeutralForPad:macos_input->esp_pads[nr]];
+        std::lock_guard<std::mutex> lock(macos_input->esp_mutex);
+        macos_input->esp_feedback[nr] = nullptr;
+        macos_input->esp_pads[nr] = -1;
         break;
+      }
       case gamepad_mode_e::HID:
         if (macos_input->hid_gamepads[nr]) {
           [macos_input->hid_gamepads[nr] disconnect];

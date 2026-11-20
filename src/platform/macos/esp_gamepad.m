@@ -11,6 +11,7 @@
  *   0x02 REPORT  len 14: <pad> <HIDGamepadReport without reportId (13 bytes)>
  * Board -> host:
  *   0x81 PONG    len 2: <protocol version> <pad count>
+ *   0x84 RUMBLE  len 5: <pad> <low-frequency u16 LE> <high-frequency u16 LE>
  */
 #import "esp_gamepad.h"
 #import "hid_gamepad.h"
@@ -22,6 +23,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -34,6 +36,9 @@
 #define MSG_PING   0x01
 #define MSG_REPORT 0x02
 #define MSG_PONG   0x81
+#define MSG_RUMBLE 0x84
+
+#define READER_POLL_MS 100
 
 #define PING_TIMEOUT_MS 500
 
@@ -97,6 +102,17 @@ static NSArray<NSString *> *findCandidatePorts(void) {
 
 @implementation ESPGamepadLink {
     int _fd;
+    pthread_t _reader;
+    BOOL _readerStarted;
+    volatile BOOL _stopReading;
+    ESPRumbleHandler _rumbleHandler;
+}
+
+static void *readerMain(void *arg) {
+    @autoreleasepool {
+        [(ESPGamepadLink *)arg readLoop];
+    }
+    return NULL;
 }
 
 + (instancetype)open {
@@ -155,8 +171,87 @@ static NSArray<NSString *> *findCandidatePorts(void) {
 
 - (void)dealloc {
     [self close];
+    [_rumbleHandler release];
     [_devicePath release];
     [super dealloc];
+}
+
+- (void)startReadingWithRumbleHandler:(ESPRumbleHandler)handler {
+    if (_readerStarted || _fd < 0) {
+        return;
+    }
+    _rumbleHandler = [handler copy];
+    _stopReading = NO;
+    _readerStarted = pthread_create(&_reader, NULL, readerMain, self) == 0;
+}
+
+/**
+ * Reader thread: polls with a timeout so close() can stop it; owns no state the writer uses.
+ * Ends on its own when the board goes away (the next write then closes the link).
+ */
+- (void)readLoop {
+    uint8_t buf[512];
+    size_t have = 0;
+    int fd = _fd;
+    while (!_stopReading) {
+        struct pollfd pfd = {.fd = fd, .events = POLLIN};
+        int r = poll(&pfd, 1, READER_POLL_MS);
+        if (r < 0 && errno != EINTR) {
+            break;
+        }
+        if (r <= 0) {
+            continue;
+        }
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            break;
+        }
+        ssize_t n = read(fd, buf + have, sizeof(buf) - have);
+        if (n <= 0) {
+            if (n < 0 && (errno == EINTR || errno == EAGAIN)) {
+                continue;
+            }
+            break;
+        }
+        have = [self consumeFrames:buf length:have + (size_t)n capacity:sizeof(buf)];
+    }
+}
+
+/**
+ * Handles every complete frame in buf and moves any partial frame to the front.
+ * Returns the number of bytes kept.
+ */
+- (size_t)consumeFrames:(uint8_t *)buf length:(size_t)have capacity:(size_t)capacity {
+    size_t i = 0;
+    while (i + 5 <= have) {
+        if (buf[i] != FRAME_SYNC0 || buf[i + 1] != FRAME_SYNC1) {
+            i++;
+            continue;
+        }
+        uint8_t len = buf[i + 3];
+        if (i + 5 + len > have) {
+            break;  // wait for the rest
+        }
+        if (crc8(&buf[i + 2], 2 + len) == buf[i + 4 + len]) {
+            [self handleFrame:buf[i + 2] payload:&buf[i + 4] length:len];
+            i += 5 + len;
+        } else {
+            i++;
+        }
+    }
+    size_t kept = have - i;
+    if (kept == capacity) {
+        kept = 0;  // no frame fits: drop the garbage
+    }
+    memmove(buf, buf + have - kept, kept);
+    return kept;
+}
+
+- (void)handleFrame:(uint8_t)type payload:(const uint8_t *)p length:(uint8_t)len {
+    if (type == MSG_RUMBLE && len == 5 && _rumbleHandler) {
+        uint16_t low = (uint16_t)(p[1] | (p[2] << 8));
+        uint16_t high = (uint16_t)(p[3] | (p[4] << 8));
+        _rumbleHandler(p[0], low, high);
+    }
 }
 
 - (BOOL)writeFrame:(uint8_t)type payload:(const uint8_t *)payload length:(uint8_t)len {
@@ -273,6 +368,12 @@ static NSArray<NSString *> *findCandidatePorts(void) {
 
 - (void)close {
     _isConnected = NO;
+    // Stop the reader before closing its descriptor; it notices within READER_POLL_MS
+    if (_readerStarted && !pthread_equal(pthread_self(), _reader)) {
+        _stopReading = YES;
+        pthread_join(_reader, NULL);
+        _readerStarted = NO;
+    }
     if (_fd >= 0) {
         close(_fd);
         _fd = -1;

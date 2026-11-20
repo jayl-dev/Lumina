@@ -18,6 +18,12 @@
 #define ESP_GAMEPAD_SERIAL_PREFIX @"LUMINA-"
 
 /**
+ * Rumble the game sent to a pad on the board: low = heavy low-frequency motor,
+ * high = light high-frequency motor, 0..65535. Called on the link's reader thread.
+ */
+typedef void (^ESPRumbleHandler)(int pad, uint16_t lowFreq, uint16_t highFreq);
+
+/**
  * Serial link to the ESP32 board. One link drives every pad the board exposes.
  */
 @interface ESPGamepadLink : NSObject
@@ -51,6 +57,14 @@
  */
 - (void)sendNeutralForPad:(int)pad;
 
+/**
+ * Starts a reader thread for messages from the board (currently rumble). Call once after open.
+ */
+- (void)startReadingWithRumbleHandler:(ESPRumbleHandler)handler;
+
+/**
+ * Stops the reader thread and closes the port; the board then releases every input.
+ */
 - (void)close;
 
 @end
