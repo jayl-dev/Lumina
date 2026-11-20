@@ -114,6 +114,68 @@ static const uint8_t kHIDReportDescriptor[] = {
     0xC0               // End Collection
 };
 
+/**
+ * Converts Sunshine d-pad button flags to HID hat switch value.
+ */
+static uint8_t dpadToHatSwitch(uint32_t buttons) {
+    BOOL up    = (buttons & SF_DPAD_UP) != 0;
+    BOOL down  = (buttons & SF_DPAD_DOWN) != 0;
+    BOOL left  = (buttons & SF_DPAD_LEFT) != 0;
+    BOOL right = (buttons & SF_DPAD_RIGHT) != 0;
+
+    if (up && right)  return HAT_NE;
+    if (up && left)   return HAT_NW;
+    if (down && right) return HAT_SE;
+    if (down && left)  return HAT_SW;
+    if (up)           return HAT_N;
+    if (right)        return HAT_E;
+    if (down)         return HAT_S;
+    if (left)         return HAT_W;
+    return HAT_NONE;
+}
+
+/**
+ * Maps Sunshine's 32-bit button flags to the 16-bit HID button field.
+ *
+ * HID button layout:
+ *   bit 0: A       bit 4: LB       bit 8:  L3
+ *   bit 1: B       bit 5: RB       bit 9:  R3
+ *   bit 2: X       bit 6: Back     bit 10: Home
+ *   bit 3: Y       bit 7: Start    bits 11-15: reserved
+ */
+static uint16_t mapButtons(uint32_t sf) {
+    uint16_t hid = 0;
+    if (sf & SF_A)            hid |= (1 << 0);
+    if (sf & SF_B)            hid |= (1 << 1);
+    if (sf & SF_X)            hid |= (1 << 2);
+    if (sf & SF_Y)            hid |= (1 << 3);
+    if (sf & SF_LEFT_BUTTON)  hid |= (1 << 4);
+    if (sf & SF_RIGHT_BUTTON) hid |= (1 << 5);
+    if (sf & SF_BACK)         hid |= (1 << 6);
+    if (sf & SF_START)        hid |= (1 << 7);
+    if (sf & SF_LEFT_STICK)   hid |= (1 << 8);
+    if (sf & SF_RIGHT_STICK)  hid |= (1 << 9);
+    if (sf & SF_HOME)         hid |= (1 << 10);
+    return hid;
+}
+
+HIDGamepadReport HIDGamepadMakeReport(uint32_t buttons,
+                                      int16_t lsX, int16_t lsY,
+                                      int16_t rsX, int16_t rsY,
+                                      uint8_t lt, uint8_t rt) {
+    HIDGamepadReport report;
+    report.reportId     = 0x01;
+    report.buttons      = mapButtons(buttons);
+    report.hatSwitch    = dpadToHatSwitch(buttons);
+    report.leftTrigger  = lt;
+    report.rightTrigger = rt;
+    report.leftStickX   = lsX;
+    report.leftStickY   = lsY;
+    report.rightStickX  = rsX;
+    report.rightStickY  = rsY;
+    return report;
+}
+
 @implementation HIDGamepad
 
 + (BOOL)isAvailable {
@@ -196,9 +258,7 @@ static const uint8_t kHIDReportDescriptor[] = {
     _isConnected = YES;
 
     // Send initial neutral state
-    HIDGamepadReport report = {0};
-    report.reportId = 0x01;
-    report.hatSwitch = HAT_NONE;
+    HIDGamepadReport report = HIDGamepadMakeReport(0, 0, 0, 0, 0, 0, 0);
 
     IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
         _hidDevice, mach_absolute_time(),
@@ -210,51 +270,6 @@ static const uint8_t kHIDReportDescriptor[] = {
 
     NSLog(@"[HIDGamepad] Gamepad %d created successfully (IOHIDUserDevice)", _gamepadIndex);
     return YES;
-}
-
-/**
- * Converts Sunshine d-pad button flags to HID hat switch value.
- */
-static uint8_t dpadToHatSwitch(uint32_t buttons) {
-    BOOL up    = (buttons & SF_DPAD_UP) != 0;
-    BOOL down  = (buttons & SF_DPAD_DOWN) != 0;
-    BOOL left  = (buttons & SF_DPAD_LEFT) != 0;
-    BOOL right = (buttons & SF_DPAD_RIGHT) != 0;
-
-    if (up && right)  return HAT_NE;
-    if (up && left)   return HAT_NW;
-    if (down && right) return HAT_SE;
-    if (down && left)  return HAT_SW;
-    if (up)           return HAT_N;
-    if (right)        return HAT_E;
-    if (down)         return HAT_S;
-    if (left)         return HAT_W;
-    return HAT_NONE;
-}
-
-/**
- * Maps Sunshine's 32-bit button flags to the 16-bit HID button field.
- *
- * HID button layout:
- *   bit 0: A       bit 4: LB       bit 8:  L3
- *   bit 1: B       bit 5: RB       bit 9:  R3
- *   bit 2: X       bit 6: Back     bit 10: Home
- *   bit 3: Y       bit 7: Start    bits 11-15: reserved
- */
-static uint16_t mapButtons(uint32_t sf) {
-    uint16_t hid = 0;
-    if (sf & SF_A)            hid |= (1 << 0);
-    if (sf & SF_B)            hid |= (1 << 1);
-    if (sf & SF_X)            hid |= (1 << 2);
-    if (sf & SF_Y)            hid |= (1 << 3);
-    if (sf & SF_LEFT_BUTTON)  hid |= (1 << 4);
-    if (sf & SF_RIGHT_BUTTON) hid |= (1 << 5);
-    if (sf & SF_BACK)         hid |= (1 << 6);
-    if (sf & SF_START)        hid |= (1 << 7);
-    if (sf & SF_LEFT_STICK)   hid |= (1 << 8);
-    if (sf & SF_RIGHT_STICK)  hid |= (1 << 9);
-    if (sf & SF_HOME)         hid |= (1 << 10);
-    return hid;
 }
 
 - (void)updateState:(uint32_t)buttons
@@ -269,16 +284,7 @@ static uint16_t mapButtons(uint32_t sf) {
         return;
     }
 
-    HIDGamepadReport report;
-    report.reportId     = 0x01;
-    report.buttons      = mapButtons(buttons);
-    report.hatSwitch    = dpadToHatSwitch(buttons);
-    report.leftTrigger  = lt;
-    report.rightTrigger = rt;
-    report.leftStickX   = lsX;
-    report.leftStickY   = lsY;
-    report.rightStickX  = rsX;
-    report.rightStickY  = rsY;
+    HIDGamepadReport report = HIDGamepadMakeReport(buttons, lsX, lsY, rsX, rsY, lt, rt);
 
     IOReturn result = IOHIDUserDeviceHandleReportWithTimeStamp(
         _hidDevice, mach_absolute_time(),

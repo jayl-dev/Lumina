@@ -53,6 +53,8 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_capture.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_audio.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_audio.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/esp_gamepad.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/esp_gamepad.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/gamepad.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.h"

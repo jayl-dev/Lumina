@@ -37,7 +37,7 @@ Upstream Sunshine has significant issues on macOS:
 | **Build on macOS** | Fails with C++ toolchain errors on modern Xcode/CLT | Builds cleanly with automated dependency management |
 | **System audio** | No capture — requires BlackHole virtual audio device | Native ScreenCaptureKit audio — zero-config, no extra software |
 | **Virtual displays** | Manual setup with BetterDisplay ($15 app) | Automatic — creates/destroys virtual displays on connect/disconnect |
-| **Gamepad support** | None on macOS | Virtual HID gamepad via IOHIDUserDevice (works with Dolphin, Steam, etc.) |
+| **Gamepad support** | None on macOS | Real USB controller via the [ESP32-S3 gamepad bridge](https://github.com/jayl-dev/lumina-gamepad-bridge) (no security changes), or a virtual HID gamepad via IOHIDUserDevice |
 | **H.264 encoding** | All-IDR bug on Apple Silicon (every frame is a keyframe) | Fixed — proper P-frame generation, 3x bandwidth reduction |
 | **Encoder performance** | Capture and encode on same thread | Parallel capture/encode pipeline |
 
@@ -50,6 +50,8 @@ Upstream Sunshine has significant issues on macOS:
 - **Automatic virtual displays** — When a Moonlight client connects, Lumina creates a virtual display matching the client's requested resolution and refresh rate (e.g., 4K@60Hz). When the last client disconnects, the virtual display is destroyed. No third-party display managers needed.
 
 - **Hardware-accelerated encoding** — VideoToolbox H.264 and HEVC encoding with Apple Silicon hardware acceleration. H.264 at 1080p60 encodes in ~15ms on M4 (fits within the 16.67ms frame budget). HEVC available for higher quality at the cost of slightly higher latency (~18ms on M4).
+
+- **Hardware gamepad bridge** — Plug in an ESP32-S3 board running the [Lumina gamepad bridge](https://github.com/jayl-dev/lumina-gamepad-bridge) firmware and Moonlight controllers appear on the Mac as a real wired USB controller (DualShock 4 or Switch Pro). Works with Ryujinx, CrossOver games, Steam and native controller games, with SIP and AMFI left enabled. See [Gamepad Setup](#gamepad-setup-optional).
 
 - **Virtual gamepad** — Creates a system-wide virtual HID gamepad that appears as a real controller to any application. Works with SDL-based games, Dolphin Emulator, Steam, Ryujinx, and more. Requires one-time security configuration (see [Gamepad Setup](#gamepad-setup-optional)).
 
@@ -270,15 +272,42 @@ Launch scripts can use the virtual display position file (`/tmp/sunshine_vd_id`)
 
 ## Gamepad Setup (Optional)
 
-Virtual gamepad support requires a one-time security configuration because it uses Apple's IOHIDUserDevice API with a restricted entitlement. **This is only needed if you want gamepad/controller support.** Keyboard and mouse input work without this step.
+When a Moonlight client connects a controller, Lumina gives it to the first of these that is available:
 
-### Why This Is Needed
+1. **ESP32-S3 gamepad bridge** (Option A) — a real USB controller, no security changes
+2. **Virtual HID gamepad** (Option B) — needs AMFI disabled and a re-signed binary
+3. **Keyboard/mouse emulation** — always available, no setup
+
+Keyboard/mouse emulation maps the controller onto a fixed shooter-style layout: A/B/X/Y → Space/E/R/F, LB/RB → Q/Tab, Back/Start → Tab/Esc, L3/R3 → Shift/V, D-pad → 1–4, left stick → mouse movement, RT/LT → left/right click (the right stick is unused). It suits games that take keyboard and mouse, but games and emulators that expect a gamepad won't see one.
+
+### Option A: ESP32-S3 Gamepad Bridge (Recommended)
+
+The [Lumina gamepad bridge](https://github.com/jayl-dev/lumina-gamepad-bridge) is open-source firmware for an inexpensive **ESP32-S3** development board (for example Espressif's ESP32-S3-DevKitC-1, 8 MB flash or more). Plugged into the Mac through its native USB port, the board is a composite USB device:
+
+- a **USB gamepad** that macOS, SDL, Ryujinx, CrossOver and Steam see as real wired hardware, emulating a **Switch Pro Controller** (default), a **DualShock 4** or a generic joystick, switchable at runtime;
+- a **USB serial port** that Lumina streams controller state to.
+
+Nothing on the Mac needs special permissions: no entitlement, no SIP or AMFI changes, no signing.
+
+**Setup:**
+
+1. Buy an ESP32-S3 board and flash it — see the bridge's README for supported boards and flashing steps.
+2. Plug it into the Mac. Its LED pulses amber while it waits for Lumina.
+3. Start Lumina and connect from Moonlight with a controller. Lumina finds the board automatically (by its `LUMINA-` USB serial number); the LED switches to the profile's colour while Lumina drives it.
+
+The board carries one controller; additional Moonlight controllers fall back to the virtual gamepad or keyboard/mouse emulation. Only one program can use the board's serial port at a time, so quit the bridge's test tools before starting Lumina.
+
+### Option B: Virtual HID Gamepad
+
+Virtual gamepad support requires a one-time security configuration because it uses Apple's IOHIDUserDevice API with a restricted entitlement. **This is only needed if you want gamepad/controller support without the ESP32 bridge.** Keyboard and mouse input work without this step.
+
+#### Why This Is Needed
 
 macOS restricts the creation of virtual HID devices to prevent malicious software from injecting fake input. Lumina creates a virtual gamepad that appears as a real USB controller to the system — this requires the `com.apple.developer.hid.virtual.device` entitlement, which Apple only allows with AMFI (Apple Mobile File Integrity) disabled.
 
 **SIP (System Integrity Protection) does NOT need to be disabled** — only AMFI. This is a less invasive change that specifically allows ad-hoc signed binaries to use restricted entitlements.
 
-### Steps
+#### Steps
 
 1. **Shut down your Mac** completely (not restart)
 
@@ -309,13 +338,13 @@ macOS restricts the creation of virtual HID devices to prevent malicious softwar
 
 That's it. The gamepad will now appear in any application as a generic USB controller. You can verify it's working by connecting from Moonlight with a controller and checking System Information > USB.
 
-### Important Notes
+#### Important Notes
 
 - **AMFI disable persists across reboots** — you only need to do this once
-- **Re-sign after every rebuild** — if you rebuild from source, run the `codesign` commands again
-- **The `lumina` launcher auto-signs on every launch** — the manual step above is only needed if you bypass the launcher
+- **`install.sh` and `dev.sh` sign automatically** — once AMFI is disabled, both sign the installed binaries with the HID entitlement, so rebuilding with `dev.sh` needs no extra step. The manual `codesign` commands above are only needed for other installs (such as the ZIP) or a binary you replaced yourself.
+- **The `lumina` launcher does not sign** — signing happens once at install time, because re-signing on every launch would change the binary's signature and invalidate its macOS permission grants
 - **To re-enable AMFI later:** boot into Recovery Mode and run `nvram -d boot-args`
-- **Without AMFI disabled, Lumina still works fully** — you just won't have gamepad support. Keyboard, mouse, virtual displays, audio, and all other features work normally.
+- **Without AMFI disabled, Lumina still works fully** — you just won't have the virtual gamepad; use the ESP32 bridge (Option A) or keyboard/mouse emulation instead. Keyboard, mouse, virtual displays, audio, and all other features work normally.
 - **The ZIP does not contain the restricted HID entitlement.** Lumina still launches normally after any quarantine is removed; only virtual HID gamepad emulation is unavailable until you locally re-sign it as shown above.
 - **Security note:** Disabling AMFI reduces one layer of macOS security. Only do this if you understand the implications and need gamepad support.
 
@@ -394,7 +423,7 @@ mDNS/DNS-SD is used for automatic discovery on the local network — Moonlight w
 | "No screen capture permission" | Grant Screen Recording in System Settings > Privacy & Security |
 | No audio in stream | Ensure `audio_sink = system` in sunshine.conf and Screen Recording permission is granted |
 | Black screen / no video | Check that the virtual display was created (look for "Created virtual display" in logs) |
-| Gamepad not detected | Ensure AMFI is disabled and binary is signed (see [Gamepad Setup](#gamepad-setup-optional)) |
+| Gamepad not detected | With the ESP32 bridge: check the board is on its native USB port, its LED switches from amber to the profile colour once a controller connects, and no other program (the bridge's Keypad or web tester) holds its serial port. With the virtual gamepad: ensure AMFI is disabled and the binary is signed. See [Gamepad Setup](#gamepad-setup-optional) |
 | High latency (>5ms) | Use H.264 instead of HEVC — H.264 encodes faster on Apple Silicon (~15ms vs ~18ms for 1080p) |
 | Build fails with C++ include errors | The install script handles this automatically. If building manually, ensure `-nostdinc++` and `-cxx-isystem` flags point to your SDK's C++ headers (see [macOS Build Fixes](#macos-build-fixes)). |
 | `libminiupnpc` not found | Run `brew install miniupnpc` |
@@ -436,7 +465,8 @@ Moonlight Client connects (e.g. 1920x1080@60Hz)
   ├─ Input Pipeline
   │    └─ Keyboard: Moonlight keycodes → macOS virtual keycodes → CGEventPost
   │    └─ Mouse: Absolute/relative → CGWarpMouseCursorPosition (virtual display coords)
-  │    └─ Gamepad: IOHIDUserDevice virtual HID reports → SDL/Game Controller framework
+  │    └─ Gamepad: ESP32 bridge board (USB serial → real USB gamepad), else
+  │                IOHIDUserDevice virtual HID reports, else keyboard/mouse emulation
   │
   └─ Client disconnects
        └─ Virtual display destroyed (vd_helper SIGTERM'd)
@@ -444,7 +474,7 @@ Moonlight Client connects (e.g. 1920x1080@60Hz)
 
 ### What We Changed (Complete List)
 
-#### New Files (8)
+#### New Files (10)
 
 | File | Purpose |
 |------|---------|
@@ -452,6 +482,7 @@ Moonlight Client connects (e.g. 1920x1080@60Hz)
 | `src/platform/macos/virtual_display.h` / `.m` | Virtual display management — spawns vd_helper subprocess, manages lifecycle (create/destroy/get_id) |
 | `src/platform/macos/vd_helper.m` | Standalone subprocess for CGVirtualDisplay — uses private API to create display, SkyLight functions to activate and position it |
 | `src/platform/macos/hid_gamepad.h` / `.m` | Virtual HID gamepad via IOHIDUserDevice — creates system-wide controller with generic VID/PID for SDL compatibility |
+| `src/platform/macos/esp_gamepad.h` / `.m` | Link to the [ESP32-S3 gamepad bridge](https://github.com/jayl-dev/lumina-gamepad-bridge) — finds the board by USB serial number and streams gamepad state over its serial port |
 | `src/platform/macos/get_display_origin.m` | Helper utility to query a display's screen coordinates — used by app launch scripts to position windows on the virtual display |
 
 #### Modified Files (14)
@@ -534,6 +565,16 @@ Lumina creates a virtual USB gamepad using `IOHIDUserDeviceCreateWithProperties(
 - **Axes:** 4 analog axes (2 sticks) + 2 triggers
 
 **Why generic VID/PID?** SDL (used by most games/emulators) has a list of known Xbox/PlayStation VID/PIDs. When SDL sees a known VID/PID, it assumes the macOS Game Controller framework handles it and skips its own IOKit HID backend. Since virtual HID devices get `IOHIDEventDummyService` (not recognized by Game Controller framework), this creates a dead zone — SDL won't see the controller through either path. Using a generic VID/PID forces SDL to use its IOKit HID backend directly. Games and emulators like Dolphin can then manually map the buttons.
+
+### ESP32 Gamepad Bridge
+
+`esp_gamepad.m` drives the [Lumina gamepad bridge](https://github.com/jayl-dev/lumina-gamepad-bridge) board when one is attached:
+
+- **Detection:** IOKit lookup of serial ports on a USB device whose serial number starts with `LUMINA-`; the board's USB VID/PID change with the emulated controller, the serial-number prefix does not. A ping/pong handshake confirms the firmware and protocol version.
+- **Protocol:** framed messages `A5 5A <type> <len> <payload> <crc8>` over USB CDC. Each controller update is one 19-byte frame carrying the same 13-byte report body as the virtual HID gamepad (`HIDGamepadMakeReport`); the firmware translates it into DualShock 4, Switch Pro or generic HID reports.
+- **Lifecycle:** opened when the first Moonlight controller arrives; when Lumina closes the port (or exits), the board releases every input.
+
+The firmware, protocol details, hardware list and test tools (a web tester and a keyboard-driven overlay) live in the bridge repository.
 
 ### macOS Build Fixes
 

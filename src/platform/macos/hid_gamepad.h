@@ -25,6 +25,16 @@ typedef struct __attribute__((packed)) {
     int16_t  rightStickY;    // -32768 to 32767
 } HIDGamepadReport;
 
+/**
+ * Builds an HID report from Sunshine's gamepad state.
+ * Shared by the IOHIDUserDevice path and the ESP32 serial path, which both
+ * use the same report descriptor.
+ */
+HIDGamepadReport HIDGamepadMakeReport(uint32_t buttons,
+                                      int16_t lsX, int16_t lsY,
+                                      int16_t rsX, int16_t rsY,
+                                      uint8_t lt, uint8_t rt);
+
 @interface HIDGamepad : NSObject
 
 @property (nonatomic, assign) int gamepadIndex;

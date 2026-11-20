@@ -102,9 +102,18 @@ uint32_t virtual_display_create(int width, int height, int fps, const char *layo
   posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
   posix_spawn_file_actions_addclose(&actions, pipefd[0]);
   posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+  posix_spawn_file_actions_addinherit_np(&actions, STDIN_FILENO);
+  posix_spawn_file_actions_addinherit_np(&actions, STDERR_FILENO);
+
+  // Only the descriptors set up above reach the child. Otherwise vd_helper inherits Lumina's
+  // listening sockets and, if Lumina crashes, keeps ports 47990/48010 bound.
+  posix_spawnattr_t attrs;
+  posix_spawnattr_init(&attrs);
+  posix_spawnattr_setflags(&attrs, POSIX_SPAWN_CLOEXEC_DEFAULT);
 
   pid_t pid;
-  int err = posix_spawn(&pid, argv[0], &actions, NULL, (char *const *)argv, environ);
+  int err = posix_spawn(&pid, argv[0], &actions, &attrs, (char *const *)argv, environ);
+  posix_spawnattr_destroy(&attrs);
   posix_spawn_file_actions_destroy(&actions);
 
   // Close write end in parent

@@ -41,5 +41,5 @@ if nvram boot-args 2>/dev/null | grep -q "amfi_get_out_of_my_way=1"; then
   codesign --sign - --entitlements "$INSTALL_DIR/hid_entitlements.plist" --force "$INSTALL_DIR/lumina"
   codesign --sign - --force "$INSTALL_DIR/vd_helper"
 else
-  echo "AMFI is enabled — skipping code signing (gamepad support unavailable)."
+  echo "AMFI is enabled — skipping code signing (virtual HID gamepad unavailable; ESP32 board and keyboard emulation still work)."
 fi

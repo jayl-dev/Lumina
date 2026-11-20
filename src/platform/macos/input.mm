@@ -23,6 +23,7 @@
 #include "src/logging.h"
 #include "src/platform/common.h"
 #include "src/utility.h"
+#include "src/platform/macos/esp_gamepad.h"
 #include "src/platform/macos/gamepad.h"
 #include "src/platform/macos/hid_gamepad.h"
 
@@ -42,7 +43,7 @@ namespace platf {
   constexpr double DEFAULT_SCROLLWHEEL_SCALING = 0.3125;
   constexpr int DEFAULT_SCROLL_LINES_PER_DETENT = 5;
 
-  enum class gamepad_mode_e { NONE, HID, EMULATION };
+  enum class gamepad_mode_e { NONE, ESP, HID, EMULATION };
 
   struct macos_input_t {
   public:
@@ -61,9 +62,11 @@ namespace platf {
     bool mouse_down[3] {};  // mouse button status
     std::chrono::steady_clock::steady_clock::time_point last_mouse_event[3][2];  // timestamp of last mouse events
 
-    // gamepad support: HID mode (virtual HID device) with emulation fallback
+    // gamepad support: ESP32 hardware gamepad, then HID mode (virtual HID device), then emulation fallback
     bool hid_available {};
     gamepad_mode_e gamepad_modes[MAX_GAMEPADS] {};
+    ESPGamepadLink *esp_link {};
+    int esp_pads[MAX_GAMEPADS] {};  // board pad index used by each ESP-mode slot
     HIDGamepad *hid_gamepads[MAX_GAMEPADS] {};
     MacOSGamepad *emulation_gamepads[MAX_GAMEPADS] {};
   };
@@ -355,6 +358,38 @@ const KeyCodeMap kKeyCodesMap[] = {
     BOOST_LOG(info) << "unicode: Unicode input not yet implemented for MacOS."sv;
   }
 
+  /**
+   * @brief Returns a free pad on the ESP32 board, opening the serial link if needed.
+   * @return Board pad index, or -1 if no board is attached or all its pads are in use.
+   */
+  static int acquire_esp_pad(macos_input_t *macos_input) {
+    if (macos_input->esp_link && !macos_input->esp_link.isConnected) {
+      [macos_input->esp_link release];
+      macos_input->esp_link = nil;
+    }
+    if (!macos_input->esp_link) {
+      macos_input->esp_link = [[ESPGamepadLink open] retain];
+      if (!macos_input->esp_link) {
+        return -1;
+      }
+      BOOST_LOG(info) << "ESP32 gamepad board found at "sv << macos_input->esp_link.devicePath.UTF8String;
+    }
+
+    for (int pad = 0; pad < macos_input->esp_link.padCount; pad++) {
+      bool in_use = false;
+      for (int i = 0; i < MAX_GAMEPADS; i++) {
+        if (macos_input->gamepad_modes[i] == gamepad_mode_e::ESP && macos_input->esp_pads[i] == pad) {
+          in_use = true;
+          break;
+        }
+      }
+      if (!in_use) {
+        return pad;
+      }
+    }
+    return -1;
+  }
+
   int alloc_gamepad(input_t &input, const gamepad_id_t &id, const gamepad_arrival_t &metadata, feedback_queue_t feedback_queue) {
     auto macos_input = static_cast<macos_input_t *>(input.get());
 
@@ -364,7 +399,16 @@ const KeyCodeMap kKeyCodesMap[] = {
         continue;
       }
 
-      // Try HID mode first if available
+      // Prefer a real USB gamepad from the ESP32 board when one is attached
+      int esp_pad = acquire_esp_pad(macos_input);
+      if (esp_pad >= 0) {
+        macos_input->esp_pads[i] = esp_pad;
+        macos_input->gamepad_modes[i] = gamepad_mode_e::ESP;
+        BOOST_LOG(info) << "Gamepad "sv << i << " allocated (ESP32 USB gamepad "sv << esp_pad << ")"sv;
+        return i;
+      }
+
+      // Try HID mode next if available
       if (macos_input->hid_available) {
         HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i];
         if ([hid createDevice]) {
@@ -396,6 +440,9 @@ const KeyCodeMap kKeyCodesMap[] = {
     }
 
     switch (macos_input->gamepad_modes[nr]) {
+      case gamepad_mode_e::ESP:
+        [macos_input->esp_link sendNeutralForPad:macos_input->esp_pads[nr]];
+        break;
       case gamepad_mode_e::HID:
         if (macos_input->hid_gamepads[nr]) {
           [macos_input->hid_gamepads[nr] disconnect];
@@ -426,6 +473,16 @@ const KeyCodeMap kKeyCodesMap[] = {
     }
 
     switch (macos_input->gamepad_modes[nr]) {
+      case gamepad_mode_e::ESP:
+        [macos_input->esp_link sendPad:macos_input->esp_pads[nr]
+                               buttons:gamepad_state.buttonFlags
+                            leftStickX:gamepad_state.lsX
+                            leftStickY:gamepad_state.lsY
+                           rightStickX:gamepad_state.rsX
+                           rightStickY:gamepad_state.rsY
+                           leftTrigger:gamepad_state.lt
+                          rightTrigger:gamepad_state.rt];
+        break;
       case gamepad_mode_e::HID:
         [macos_input->hid_gamepads[nr] updateState:gamepad_state.buttonFlags
                                         leftStickX:gamepad_state.lsX
@@ -771,6 +828,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     // Initialize gamepad slots
     for (int i = 0; i < MAX_GAMEPADS; i++) {
       macos_input->gamepad_modes[i] = gamepad_mode_e::NONE;
+      macos_input->esp_pads[i] = -1;
       macos_input->hid_gamepads[i] = nil;
       macos_input->emulation_gamepads[i] = nil;
     }
@@ -784,8 +842,11 @@ const KeyCodeMap kKeyCodesMap[] = {
   void freeInput(void *p) {
     auto *input = static_cast<macos_input_t *>(p);
 
-    // Clean up gamepads (both HID and emulation)
+    // Clean up gamepads (ESP, HID and emulation)
     for (int i = 0; i < MAX_GAMEPADS; i++) {
+      if (input->gamepad_modes[i] == gamepad_mode_e::ESP) {
+        [input->esp_link sendNeutralForPad:input->esp_pads[i]];
+      }
       if (input->hid_gamepads[i] != nil) {
         [input->hid_gamepads[i] disconnect];
         [input->hid_gamepads[i] release];
@@ -797,6 +858,12 @@ const KeyCodeMap kKeyCodesMap[] = {
         input->emulation_gamepads[i] = nil;
       }
       input->gamepad_modes[i] = gamepad_mode_e::NONE;
+    }
+
+    if (input->esp_link) {
+      [input->esp_link close];
+      [input->esp_link release];
+      input->esp_link = nil;
     }
 
     CFRelease(input->source);
