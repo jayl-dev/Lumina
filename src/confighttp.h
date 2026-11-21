@@ -71,6 +71,11 @@ namespace confighttp {
    */
   void savePin(const resp_https_t &response, const req_https_t &request);
 
+  /**
+   * @brief Save an application with optional fields normalized before persistence.
+   */
+  void saveApp(const resp_https_t &response, const req_https_t &request);
+
   // Browse helper functions (also exposed for unit testing)
   /**
    * @brief Checks whether a directory entry qualifies as an executable file.

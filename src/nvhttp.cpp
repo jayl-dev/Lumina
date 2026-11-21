@@ -151,6 +151,7 @@ namespace nvhttp {
 
   // Set by TLS verify callback, read by launch/resume handler (single-threaded HTTPS server)
   std::string last_verified_client_cert;  // NOSONAR(cpp:S5421) - intentionally mutable global
+  std::string last_verified_client_name;  // NOSONAR(cpp:S5421) - intentionally mutable global
 
   using args_t = SimpleWeb::CaseInsensitiveMultimap;
   using resp_https_t = std::shared_ptr<typename SimpleWeb::ServerBase<SunshineHTTPS>::Response>;
@@ -266,6 +267,20 @@ namespace nvhttp {
       matched = true;
     }
     return matched;
+  }
+
+  /**
+   * @brief Look up the friendly name assigned during pairing to a client certificate.
+   * @note The caller must hold `client_auth_mutex`.
+   */
+  std::string get_client_name(const X509 *certificate) {
+    for (const auto &named_cert : client_root.named_devices) {
+      auto stored_certificate = crypto::x509(named_cert.cert);
+      if (stored_certificate && X509_cmp(stored_certificate.get(), certificate) == 0) {
+        return named_cert.name;
+      }
+    }
+    return {};
   }
 
   /**
@@ -402,6 +417,10 @@ namespace nvhttp {
       }
       x++;
     }
+    // Cap the session resolution up front so downstream consumers (e.g. the display device
+    // configuration that switches the host display mode) target the actual streamed size
+    // instead of the uncapped client request.
+    config::cap_stream_resolution(launch_session->width, launch_session->height);
     launch_session->unique_id = (get_arg(args, "uniqueid", "unknown"));
     launch_session->appid = (int) util::from_view(get_arg(args, "appid", "unknown"));
     launch_session->enable_sops = util::from_view(get_arg(args, "sops", "0"));
@@ -422,6 +441,7 @@ namespace nvhttp {
     }
     launch_session->rtsp_url_scheme = launch_session->rtsp_cipher ? "rtspenc://"s : "rtsp://"s;
     launch_session->client_cert = last_verified_client_cert;
+    launch_session->client_name = last_verified_client_name;
 
     // Generate the unique identifiers for this connection that we will send later during RTSP handshake
     unsigned char raw_payload[8];
@@ -1121,6 +1141,7 @@ namespace nvhttp {
 
   void applist(resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
+    proc::refresh(config::stream.file_apps);
 
     pt::ptree tree;
 
@@ -1460,6 +1481,7 @@ namespace nvhttp {
       }
 
       last_verified_client_cert = crypto::pem(x509);
+      last_verified_client_name = get_client_name(x509.get());
       verified = 1;
 
       return verified;

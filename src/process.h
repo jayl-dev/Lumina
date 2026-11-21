@@ -97,6 +97,15 @@ namespace proc {
     std::string get_last_run_app_name();
     void terminate();
 
+    // Replace the app list and env, keeping the running app's process state and session env vars
+    void update_apps_and_env(proc_t &&other);
+
+#ifdef SUNSHINE_TESTS
+    const boost::process::v1::environment &get_env() const {
+      return _env;
+    }
+#endif
+
   private:
     int _app_id;
 
