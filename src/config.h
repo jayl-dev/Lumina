@@ -185,6 +185,9 @@ namespace config {
 
     // Limit the packetsize to avoid fragmentation on a low MTU link
     int packetsize;
+
+    // Allow DSCP tagging of audio and video traffic when requested by the client
+    bool dscp_tagging;
   };
 
   struct nvhttp_t {

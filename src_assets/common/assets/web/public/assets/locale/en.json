@@ -226,6 +226,8 @@
     "ds4_back_as_touchpad_click_desc": "When forcing DS4 emulation, map Back/Select to Touchpad Click",
     "ds5_inputtino_randomize_mac": "Randomize virtual controller MAC",
     "ds5_inputtino_randomize_mac_desc": "Upon controller registration use a random MAC instead of one based on the controllers internal index to avoid mixing configuration settings of different controllers when the are swapped on client-side.",
+    "dscp_tagging": "DSCP Tagging",
+    "dscp_tagging_desc": "Mark audio and video packets with DSCP priority tags when requested by the client. Disabling this may help if audio crackles or stutters on Wi-Fi, as some routers handle tagged traffic poorly.",
     "encoder": "Force a Specific Encoder",
     "encoder_desc": "Force a specific encoder, otherwise Lumina will select the best available option. Note: If you specify a hardware encoder on Windows, it must match the GPU where the display is connected.",
     "encoder_software": "Software",
