@@ -380,6 +380,20 @@ namespace proc {
     return _app.name;
   }
 
+  void proc_t::update_apps_and_env(proc_t &&other) {
+    if (_app_id > 0 || placebo) {
+      // Preserve session-specific environment variables for the running app
+      for (const auto &var : _env) {
+        std::string name = var.get_name();
+        if (name.find("SUNSHINE_APP_") == 0 || name.find("SUNSHINE_CLIENT_") == 0) {
+          other._env[name] = var.to_string();
+        }
+      }
+    }
+    _env = std::move(other._env);
+    _apps = std::move(other._apps);
+  }
+
   proc_t::~proc_t() {
     // It's not safe to call terminate() here because our proc_t is a static variable
     // that may be destroyed after the Boost loggers have been destroyed. Instead,
@@ -750,10 +764,22 @@ namespace proc {
   }
 
   void refresh(const std::string &file_name) {
+    // Re-parse only when apps.json changed; nullopt means never parsed (file_time_type{} isn't a safe sentinel)
+    static std::optional<std::filesystem::file_time_type> last_apps_file_update;
+
+    std::error_code ec;
+    auto current_time = std::filesystem::last_write_time(file_name, ec);
+
+    // Only skip parsing when we have a known-good timestamp and the file hasn't changed
+    if (last_apps_file_update && !ec && current_time == *last_apps_file_update) {
+      return;
+    }
+
     auto proc_opt = proc::parse(file_name);
 
     if (proc_opt) {
-      proc = std::move(*proc_opt);
+      proc.update_apps_and_env(std::move(*proc_opt));
+      last_apps_file_update = current_time;
     }
   }
 }  // namespace proc
