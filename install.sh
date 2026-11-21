@@ -123,7 +123,7 @@ DEPS=(
     doxygen         # Documentation generation (build requirement)
     graphviz        # Documentation graphs (build requirement)
     node            # Web UI build toolchain (Vue 3 + Vite)
-    icu4c@78        # Unicode support (Boost.Locale dependency)
+    icu4c@79        # Unicode support (Boost.Locale dependency)
     miniupnpc       # UPnP port mapping for automatic NAT traversal
     qtbase          # Qt system tray runtime
     qtsvg           # Qt SVG support used by the tray backend

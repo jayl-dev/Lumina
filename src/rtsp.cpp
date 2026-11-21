@@ -406,6 +406,7 @@ namespace rtsp_stream {
     }
 
     int bind(net::af_e af, std::uint16_t port, boost::system::error_code &ec) {
+      af = net::get_effective_address_family(af);
       acceptor.open(af == net::IPV4 ? tcp::v4() : tcp::v6(), ec);
       if (ec) {
         return -1;
@@ -835,7 +836,7 @@ namespace rtsp_stream {
        */
       if (x == audio::SURROUND51 || x == audio::SURROUND71) {
         std::copy_n(mapping_p, stream_config.channelCount, mapping);
-        std::rotate(mapping + 3, mapping + 4, mapping + audio::MAX_STREAM_CONFIG);
+        std::rotate(mapping + 3, mapping + 4, mapping + stream_config.channelCount);
 
         mapping_p = mapping;
       }

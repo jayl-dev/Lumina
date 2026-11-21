@@ -7,7 +7,11 @@
 
 // standard includes
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -103,6 +107,12 @@ namespace nvhttp {
     CLIENTPAIRINGSECRET  ///< Sunshine is in the client pairing secret phase
   };
 
+  struct pairing_completion_t {
+    std::condition_variable condition;  ///< Wakes the REST request when pairing finishes.
+    std::mutex mutex;  ///< Protects the completion result.
+    std::optional<bool> result;  ///< Final pairing result, or no value while the handshake is pending.
+  };
+
   struct pair_session_t {
     struct {
       std::string uniqueID = {};
@@ -113,8 +123,9 @@ namespace nvhttp {
     std::unique_ptr<crypto::aes_t> cipher_key = {};
     std::vector<uint8_t> clienthash = {};
 
-    std::string serversecret = {};
-    std::string serverchallenge = {};
+    std::string serversecret = {};  ///< Server pairing secret.
+    std::string serverchallenge = {};  ///< Server challenge sent during pairing.
+    std::shared_ptr<pairing_completion_t> completion = std::make_shared<pairing_completion_t>();  ///< Result shared with the REST request waiting for the handshake.
 
     struct {
       util::Either<
@@ -185,6 +196,23 @@ namespace nvhttp {
    * @return Status describing whether the session was inserted.
    */
   pair_session_insert_e insert_pair_session(pair_session_t sess, std::string &pairing_id);
+
+  /**
+   * @brief Evict an abandoned in-progress pairing session for a client.
+   *
+   * A fresh `getservercert` request means the client abandoned its previous handshake and
+   * started over: the phase machine never accepts `getservercert` twice for one session, so
+   * the old handshake cannot resume. Evicting it lets the retry proceed instead of failing
+   * with 409 until the session expires. Sessions still waiting for operator PIN approval
+   * (`last_phase == NONE`) are left untouched, so a pending approval cannot be displaced
+   * by a stray `getservercert`. Eviction completes the old session as failed, waking any
+   * PIN submitter waiting on it, and orphans no live HTTP response: the response is
+   * consumed when PIN approval advances the session past the certificate phase.
+   *
+   * @param unique_id Client-provided pairing-session identifier.
+   * @return `true` when an in-progress session was evicted.
+   */
+  bool evict_abandoned_pair_session(const std::string &unique_id);
 
   /**
    * @brief Remove pairing sessions whose completion deadline has passed.
@@ -270,7 +298,8 @@ namespace nvhttp {
    * @param pairing_id Unguessable identifier of the pairing request to approve.
    * @param pin The user supplied pin.
    * @param name The user supplied name.
-   * @return `true` if the pin is correct, `false` otherwise.
+   * @return `true` if Moonlight proves the PIN by completing the handshake, `false` otherwise.
+   * @note The handshake wait uses the configured `ping_timeout` and never exceeds the pairing session deadline.
    * @examples
    * bool pin_status = nvhttp::pin("0123456789abcdef0123456789abcdef", "1234", "laptop");
    * @examples_end
@@ -333,12 +362,29 @@ namespace nvhttp {
     std::string add_client(const std::string &name, std::string cert, bool enabled);
 
     /**
+     * @brief Duplicate a paired-client record to simulate legacy conflicting state.
+     *
+     * @param uuid Persistent UUID of the record to duplicate.
+     * @return `true` when the source record was found and duplicated.
+     */
+    bool duplicate_client(std::string_view uuid);
+
+    /**
      * @brief Run the production certificate authorization checks against PEM input.
      *
      * @param cert PEM-encoded certificate presented by a client.
      * @return `true` when the exact certificate belongs to one enabled paired client.
      */
     bool authorize_client_certificate(std::string_view cert);
+
+    /**
+     * @brief Complete and remove a pairing session without running the protocol phases.
+     *
+     * @param pairing_id Operator approval identifier of the test session.
+     * @param success Pairing result delivered to the waiting PIN submitter.
+     * @return `true` when the session was found and completed.
+     */
+    bool complete_pairing(std::string_view pairing_id, bool success);
 
     /**
      * @brief Reload paired-client authorization state from the configured state file.

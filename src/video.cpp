@@ -220,6 +220,7 @@ namespace video {
         return true;
       }
 
+#ifdef _WIN32
       // Since Windows 11 24H2, it is possible that there will be no active devices present
       // for some reason (probably a bug). Trying to probe encoders in such a state locks/breaks the DXGI
       // and also the display device for Windows. So we must have at least 1 active device.
@@ -234,6 +235,11 @@ namespace video {
 
       BOOST_LOG(error) << "No display devices are active at the moment! Cannot probe the encoders.";
       return false;
+#else
+      // A sleeping display enumerates as inactive on other platforms, and the wake-up call
+      // lives in platf::display(), which probing must reach for the display to ever wake.
+      return true;
+#endif
     }
   }  // namespace
 
@@ -283,6 +289,32 @@ namespace video {
     };
 
   }  // namespace qsv
+
+  /**
+   * @brief Resolve a client-requested dynamic range against probed encoder capabilities.
+   *
+   * @param encoder Selected encoder and its probed codec capabilities.
+   * @param config Client-requested stream configuration.
+   * @return Effective stream configuration, downgraded to SDR when HDR is unsupported.
+   */
+  config_t resolve_dynamic_range(const encoder_t &encoder, config_t config) {
+    if (!config.dynamicRange) {
+      return config;
+    }
+
+    const auto &video_format = encoder.codec_from_config(config);
+    // Lumina probes HDR and YUV 4:4:4 separately, so HDR 4:4:4 requires both.
+    const bool supported = video_format[encoder_t::DYNAMIC_RANGE] &&
+                           (config.chromaSamplingType != 1 || video_format[encoder_t::YUV444]);
+    if (supported) {
+      return config;
+    }
+
+    const auto mode = config.chromaSamplingType == 1 ? "YUV 4:4:4 dynamic range"sv : "dynamic range"sv;
+    BOOST_LOG(warning) << video_format.name << ": "sv << mode << " not supported, falling back to SDR"sv;
+    config.dynamicRange = 0;
+    return config;
+  }
 
   util::Either<avcodec_buffer_t, int> dxgi_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
   util::Either<avcodec_buffer_t, int> vaapi_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
@@ -2785,6 +2817,8 @@ namespace video {
     config_t config,
     void *channel_data
   ) {
+    config = resolve_dynamic_range(*chosen_encoder, config);
+
     auto idr_events = mail->event<bool>(mail::idr);
 
     idr_events->raise(true);

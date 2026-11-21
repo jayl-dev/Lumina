@@ -76,3 +76,59 @@ INSTANTIATE_TEST_SUITE_P(
     std::make_tuple(9498, AVRational {4749, 50})  // from my LG 27GN950
   )
 );
+
+/**
+ * @brief Parameterized coverage for resolving requested dynamic range against encoder capabilities.
+ */
+struct DynamicRangeTest: testing::TestWithParam<std::tuple<int, int, int, bool, bool, int>> {};
+
+TEST_P(DynamicRangeTest, Resolve) {
+  const auto &[video_format, chroma_sampling_type, requested_dynamic_range, supports_hdr, supports_yuv444, expected_dynamic_range] = GetParam();
+
+  video::encoder_t encoder {
+    "test"sv,
+    {},
+    {},
+    {},
+    {},
+    0,
+  };
+  encoder.h264.name = "h264_test";
+  encoder.hevc.name = "hevc_test";
+  encoder.av1.name = "av1_test";
+
+  video::config_t config {};
+  config.videoFormat = video_format;
+  config.dynamicRange = requested_dynamic_range;
+  config.chromaSamplingType = chroma_sampling_type;
+
+  auto *codec = &encoder.h264;
+  if (video_format == 1) {
+    codec = &encoder.hevc;
+  } else if (video_format == 2) {
+    codec = &encoder.av1;
+  }
+  (*codec)[video::encoder_t::DYNAMIC_RANGE] = supports_hdr;
+  (*codec)[video::encoder_t::YUV444] = supports_yuv444;
+
+  const auto effective_config = video::resolve_dynamic_range(encoder, config);
+
+  EXPECT_EQ(expected_dynamic_range, effective_config.dynamicRange);
+  EXPECT_EQ(requested_dynamic_range, config.dynamicRange);
+  EXPECT_EQ(video_format, effective_config.videoFormat);
+  EXPECT_EQ(chroma_sampling_type, effective_config.chromaSamplingType);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  DynamicRangeTests,
+  DynamicRangeTest,
+  testing::Values(
+    std::make_tuple(0, 0, 1, false, true, 0),
+    std::make_tuple(1, 0, 1, false, true, 0),
+    std::make_tuple(1, 0, 1, true, false, 1),
+    std::make_tuple(2, 1, 1, true, false, 0),
+    std::make_tuple(2, 1, 1, false, true, 0),
+    std::make_tuple(2, 1, 1, true, true, 1),
+    std::make_tuple(1, 0, 0, false, false, 0)
+  )
+);

@@ -1393,7 +1393,11 @@ namespace confighttp {
   }
 
   /**
-   * @brief Send a PIN code to the explicitly selected pairing request.
+   * @brief Submit a PIN and return whether the selected client completes pairing.
+   *
+   * The request remains open for up to the configured `ping_timeout` while
+   * Moonlight completes the cryptographic handshake. A wrong PIN, protocol
+   * failure, cancellation, or timeout returns `{"status":false}`.
    * The body for the post request should be JSON serialized in the following format:
    * @code{.json}
    * {
@@ -1889,9 +1893,7 @@ namespace confighttp {
     server.config.address = net::get_bind_address(address_family);
     server.config.port = port_https;
 
-    // Store bind address for logging, use "localhost" as fallback for wildcard addresses
-    const auto bind_addr = server.config.address;
-    const auto display_addr = config::sunshine.bind_address.empty() ? "localhost"sv : std::string_view {bind_addr};
+    const auto display_addr = net::get_bind_address_url_host();
 
     auto accept_and_run = [&](auto *server) {
       try {
