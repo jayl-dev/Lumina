@@ -141,7 +141,7 @@ namespace round_robin_util {
     }
   };
 
-  template<class V, class It>
+  template<class V, std::random_access_iterator It>
   class round_robin_t: public it_wrap_t<V, round_robin_t<V, It>> {
   public:
     using iterator = It;
@@ -170,7 +170,17 @@ namespace round_robin_util {
     }
 
     bool eq(const round_robin_t &other) const {
-      return *_pos == *other._pos;
+      return _pos == other._pos;
+    }
+
+    /**
+     * @brief Compare two iterators by their positions in the wrapped range.
+     *
+     * @param other Iterator to compare against.
+     * @return True when this iterator follows `other` in the wrapped range.
+     */
+    bool gt(const round_robin_t &other) const {
+      return _pos > other._pos;
     }
 
     pointer get() const {
@@ -184,7 +194,7 @@ namespace round_robin_util {
     It _pos;
   };
 
-  template<class V, class It>
+  template<class V, std::random_access_iterator It>
   round_robin_t<V, It> make_round_robin(It begin, It end) {
     return round_robin_t<V, It>(begin, end);
   }

@@ -7,6 +7,7 @@
 // standard includes
 #include <algorithm>
 #include <condition_variable>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -204,10 +205,10 @@ namespace util {
 
     buf.reserve(data_len);
 
-    auto *data = (uint8_t *) &_struct;
+    auto const *data = reinterpret_cast<std::byte const *>(&_struct);
 
     for (size_t x = 0; x < data_len; ++x) {
-      buf.push_back(data[x]);
+      buf.push_back(std::to_integer<uint8_t>(data[x]));
     }
   }
 
@@ -304,6 +305,10 @@ namespace util {
 
     std::string hex;
     hex.resize(str_size);
+
+    if (begin == end) {
+      return hex;
+    }
 
     const char _bits[16] {
       '0',
