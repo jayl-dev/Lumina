@@ -41,6 +41,9 @@ namespace config {
 
     int min_threads;  // Minimum number of threads/slices for CPU encoding
 
+    int max_stream_width;  // Maximum streamed video width; larger requests are downscaled. 0 disables the cap.
+    int max_stream_height;  // Maximum streamed video height; larger requests are downscaled. 0 disables the cap.
+
     struct {
       std::string sw_preset;
       std::string sw_tune;
@@ -299,4 +302,6 @@ namespace config {
 
   int parse(int argc, char *argv[]);
   std::unordered_map<std::string, std::string> parse_config(const std::string_view &file_content);
+  bool cap_stream_resolution(int &width, int &height);
+  bool parse_stream_resolution(const std::string_view &value, int &width, int &height);
 }  // namespace config
