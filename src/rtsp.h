@@ -35,6 +35,7 @@ namespace rtsp_stream {
     bool continuous_audio;
     bool enable_hdr;
     bool enable_sops;
+    std::string client_name;
 
     std::optional<crypto::cipher::gcm_t> rtsp_cipher;
     std::string rtsp_url_scheme;
