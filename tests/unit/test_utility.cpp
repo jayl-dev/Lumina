@@ -309,3 +309,15 @@ TEST(UtilityLogHexTests, Formats16Bit) {
   const std::string result = util::log_hex(val);
   EXPECT_EQ(result, "0x1234");
 }
+
+TEST(UtilityFromHexTests, LongInputKeepsTheLowOrderBytes) {
+  EXPECT_EQ(util::from_hex<std::uint32_t>("123456789A"), util::endian::little(std::uint32_t {0x3456789A}));
+  EXPECT_EQ(util::from_hex<std::uint32_t>("123456789A", true), util::endian::big(std::uint32_t {0x3456789A}));
+}
+
+TEST(UtilityFromHexTests, OddDigitCountReadsTheLeadingDigitAsTheHighNibble) {
+  EXPECT_EQ(util::from_hex<std::uint32_t>("8"), util::endian::little(std::uint32_t {0x8}));
+  EXPECT_EQ(util::from_hex<std::uint16_t>("ABC"), util::endian::little(std::uint16_t {0xABC}));
+  EXPECT_EQ(util::from_hex<std::uint16_t>("ABC", true), util::endian::big(std::uint16_t {0xABC}));
+  EXPECT_EQ(util::from_hex<std::uint16_t>("1:2:3"), util::endian::little(std::uint16_t {0x123}));
+}

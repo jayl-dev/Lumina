@@ -370,7 +370,10 @@ namespace util {
       return true;
     };
 
-    auto buf_size = std::count_if(std::begin(hex), std::end(hex), is_convertable) / 2;
+    // Digits beyond the size of T are ignored, keeping the low-order bytes.
+    // An odd number of digits is read as if it had a leading zero.
+    auto digits_left = std::count_if(std::begin(hex), std::end(hex), is_convertable);
+    auto buf_size = std::min<std::size_t>((digits_left + 1) / 2, sizeof(T));
     auto padding = sizeof(T) - buf_size;
 
     const char *data = hex.data() + hex.size() - 1;
@@ -390,11 +393,16 @@ namespace util {
         --data;
       }
       std::uint8_t ch_r = convert(*data--);
+      --digits_left;
 
-      while (!is_convertable(*data)) {
-        --data;
+      std::uint8_t ch_l = 0;
+      if (digits_left > 0) {
+        while (!is_convertable(*data)) {
+          --data;
+        }
+        ch_l = convert(*data--);
+        --digits_left;
       }
-      std::uint8_t ch_l = convert(*data--);
 
       el = (ch_l << 4) | ch_r;
     });
