@@ -2,6 +2,8 @@
  * @file tests/unit/test_rswrapper.cpp
  * @brief Test src/rswrapper.*
  */
+#include <cstddef>
+
 extern "C" {
 #include <src/rswrapper.h>
 }
