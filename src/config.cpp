@@ -312,22 +312,6 @@ namespace config {
       return -1;
     }
 
-    int allow_software_from_view(const std::string_view &software) {
-      if (software == "allowed"sv || software == "forced") {
-        return 1;
-      }
-
-      return 0;
-    }
-
-    int force_software_from_view(const std::string_view &software) {
-      if (software == "forced") {
-        return 1;
-      }
-
-      return 0;
-    }
-
     int rt_from_view(const std::string_view &rt) {
       if (rt == "disabled" || rt == "off" || rt == "0") {
         return 0;
@@ -482,8 +466,6 @@ namespace config {
     },  // amd
 
     {
-      0,  // allow software encoding
-      0,  // require software encoding
       1,  // realtime encoding
       -1,  // maximum frame delay (automatic)
       -1,  // entropy coder (automatic)
@@ -1209,8 +1191,6 @@ namespace config {
     bool_f(vars, "amd_enforce_hrd", (bool &) video.amd.amd_enforce_hrd);
 
     int_f(vars, "vt_coder", video.vt.vt_coder, vt::coder_from_view);
-    int_f(vars, "vt_software", video.vt.vt_allow_sw, vt::allow_software_from_view);
-    int_f(vars, "vt_software", video.vt.vt_require_sw, vt::force_software_from_view);
     int_f(vars, "vt_realtime", video.vt.vt_realtime, vt::rt_from_view);
     int_between_f(vars, "vt_max_frame_delay", video.vt.vt_max_frame_delay, {-1, std::numeric_limits<int>::max()});
 
