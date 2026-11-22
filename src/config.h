@@ -86,8 +86,6 @@ namespace config {
     } amd;
 
     struct {
-      int vt_allow_sw;
-      int vt_require_sw;
       int vt_realtime;
       int vt_max_frame_delay;
       int vt_coder;

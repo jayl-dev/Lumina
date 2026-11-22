@@ -16,8 +16,8 @@
 #include "src/platform/macos/av_img_t.h"
 #include "src/platform/macos/av_video.h"
 #include "src/platform/macos/misc.h"
-#include "src/platform/macos/nv12_zero_device.h"
 #import "src/platform/macos/sc_capture.h"
+#include "src/platform/macos/vt_encoder.h"
 
 // Avoid conflict between AVFoundation and libavutil both defining AVMediaType
 #define AVMediaType AVMediaType_FFmpeg
@@ -131,10 +131,6 @@ namespace platf {
       if (pix_fmt == pix_fmt_e::yuv420p) {
         av_capture.pixelFormat = kCVPixelFormatType_32BGRA;
         return std::make_unique<avcodec_encode_device_t>();
-      } else if (pix_fmt == pix_fmt_e::nv12 || pix_fmt == pix_fmt_e::p010) {
-        auto device = std::make_unique<nv12_zero_device>();
-        device->init(static_cast<void *>(av_capture), pix_fmt, setResolution, setPixelFormat);
-        return device;
       } else {
         BOOST_LOG(error) << "Unsupported Pixel Format."sv;
         return nullptr;
@@ -200,12 +196,17 @@ namespace platf {
       return 0;
     }
 
-    static void setResolution(void *display, int width, int height) {
-      [static_cast<AVVideo *>(display) setFrameWidth:width frameHeight:height];
-    }
-
-    static void setPixelFormat(void *display, OSType pixelFormat) {
-      static_cast<AVVideo *>(display).pixelFormat = pixelFormat;
+    std::unique_ptr<vt_encode_device_t> make_vt_encode_device(pix_fmt_e pix_fmt) override {
+      auto *capture = av_capture;
+      return vt::make_encode_device(
+        pix_fmt,
+        [capture](int width, int height) {
+          [capture setFrameWidth:width frameHeight:height];
+        },
+        [capture](int pixel_format) {
+          capture.pixelFormat = pixel_format;
+        }
+      );
     }
   };
 
@@ -264,10 +265,6 @@ namespace platf {
       if (pix_fmt == pix_fmt_e::yuv420p) {
         sc_capture.pixelFormat = kCVPixelFormatType_32BGRA;
         return std::make_unique<avcodec_encode_device_t>();
-      } else if (pix_fmt == pix_fmt_e::nv12 || pix_fmt == pix_fmt_e::p010) {
-        auto device = std::make_unique<nv12_zero_device>();
-        device->init(static_cast<void *>(sc_capture), pix_fmt, setResolution, setPixelFormat);
-        return device;
       } else {
         BOOST_LOG(error) << "Unsupported Pixel Format."sv;
         return nullptr;
@@ -335,12 +332,17 @@ namespace platf {
       return 0;
     }
 
-    static void setResolution(void *display, int width, int height) {
-      [static_cast<SCCapture *>(display) setFrameWidth:width frameHeight:height];
-    }
-
-    static void setPixelFormat(void *display, OSType pixelFormat) {
-      static_cast<SCCapture *>(display).pixelFormat = pixelFormat;
+    std::unique_ptr<vt_encode_device_t> make_vt_encode_device(pix_fmt_e pix_fmt) override {
+      auto *capture = sc_capture;
+      return vt::make_encode_device(
+        pix_fmt,
+        [capture](int width, int height) {
+          [capture setFrameWidth:width frameHeight:height];
+        },
+        [capture](int pixel_format) {
+          capture.pixelFormat = pixel_format;
+        }
+      );
     }
   };
 
