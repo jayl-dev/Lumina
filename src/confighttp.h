@@ -41,7 +41,8 @@ namespace confighttp {
   bool validate_csrf_token(const resp_https_t &response, const req_https_t &request, const std::string &client_id);
   std::string get_client_id(const req_https_t &request);
   bool check_app_index(const resp_https_t &response, const req_https_t &request, int index);
-  void getPage(const resp_https_t &response, const req_https_t &request, const char *html_file, bool require_auth = true, bool redirect_if_username = false);
+  void getPage(const resp_https_t &response, const req_https_t &request, bool require_auth = true, bool redirect_if_username = false);
+  void getFallbackPage(const resp_https_t &response, const req_https_t &request);
   void getAsset(const resp_https_t &response, const req_https_t &request);
   void browseDirectory(const resp_https_t &response, const req_https_t &request);
   void getLocale(const resp_https_t &response, const req_https_t &request);
