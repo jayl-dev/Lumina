@@ -186,7 +186,7 @@ namespace {
         }
         // Keep the captured buffers alive until VideoToolbox has finished reading them; the img_t
         // pool recycles images (and releases their buffers) at any time.
-        in_flight.push_back({frame_index, force_idr, clock_t_::now(), std::move(pixel_buffer), std::move(sample_buffer)});
+        in_flight.push_back({frame_index, force_idr, clock_t_::now(), std::move(sample_buffer), std::move(pixel_buffer)});
       }
 
       CFDictionaryRef frame_options = nullptr;
@@ -240,8 +240,9 @@ namespace {
       uint64_t frame_index;
       bool force_idr;
       clock_t_::time_point submitted;
-      std::shared_ptr<platf::av_pixel_buf_t> pixel_buffer;
+      // Declared first so the pixel buffer is unlocked before the sample buffer is released
       std::shared_ptr<platf::av_sample_buf_t> sample_buffer;
+      std::shared_ptr<platf::av_pixel_buf_t> pixel_buffer;
     };
 
     static void output_callback(void *refcon, void *, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample_buffer) {
