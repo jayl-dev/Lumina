@@ -6,6 +6,7 @@
 
 // standard includes
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -40,6 +41,10 @@
 #endif
 
 namespace proc {
+  // Guards proc_t::_apps and _env: refresh() replaces them from the Web UI and Moonlight request threads
+  // while launches and app list requests read them. File-scope because proc_t must stay movable.
+  static std::mutex apps_mutex;
+
   using namespace std::literals;
   namespace pt = boost::property_tree;
 
@@ -146,6 +151,9 @@ namespace proc {
   int proc_t::execute(int app_id, std::shared_ptr<rtsp_stream::launch_session_t> launch_session) {
     // Ensure starting from a clean slate
     terminate();
+
+    // The app list and environment are replaced by refresh() from other threads; hold them for the whole launch
+    std::scoped_lock lock {apps_mutex};
 
     auto iter = std::find_if(_apps.begin(), _apps.end(), [&app_id](const auto app) {
       return app.id == std::to_string(app_id);
@@ -363,11 +371,8 @@ namespace proc {
     _app_id = -1;
   }
 
-  const std::vector<ctx_t> &proc_t::get_apps() const {
-    return _apps;
-  }
-
-  std::vector<ctx_t> &proc_t::get_apps() {
+  std::vector<ctx_t> proc_t::get_apps() const {
+    std::scoped_lock lock {apps_mutex};
     return _apps;
   }
 
@@ -376,10 +381,16 @@ namespace proc {
   // Returns default image if image configuration is not set.
   // Returns http content-type header compatible image type.
   std::string proc_t::get_app_image(int app_id) {
-    auto iter = std::find_if(_apps.begin(), _apps.end(), [&app_id](const auto app) {
-      return app.id == std::to_string(app_id);
-    });
-    auto app_image_path = iter == _apps.end() ? std::string() : iter->image_path;
+    std::string app_image_path;
+    {
+      std::scoped_lock lock {apps_mutex};
+      auto iter = std::find_if(_apps.begin(), _apps.end(), [&app_id](const auto &app) {
+        return app.id == std::to_string(app_id);
+      });
+      if (iter != _apps.end()) {
+        app_image_path = iter->image_path;
+      }
+    }
 
     return validate_app_image_path(app_image_path);
   }
@@ -389,6 +400,7 @@ namespace proc {
   }
 
   void proc_t::update_apps_and_env(proc_t &&other) {
+    std::scoped_lock lock {apps_mutex};
     if (_app_id > 0 || placebo) {
       // Preserve session-specific environment variables for the running app
       for (const auto &var : _env) {
@@ -772,6 +784,10 @@ namespace proc {
   }
 
   void refresh(const std::string &file_name) {
+    // Called from both the Web UI and Moonlight request threads
+    static std::mutex refresh_mutex;
+    std::scoped_lock lock {refresh_mutex};
+
     // Re-parse only when apps.json changed; nullopt means never parsed (file_time_type{} isn't a safe sentinel)
     static std::optional<std::filesystem::file_time_type> last_apps_file_update;
 

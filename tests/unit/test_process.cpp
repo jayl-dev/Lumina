@@ -475,12 +475,14 @@ TEST_F(ProcessRefreshTest, Refresh_SkipsUnchangedFile) {
   proc::refresh(apps_file.string());
   ASSERT_EQ(proc::proc.get_apps().size(), 1u);
 
-  // Mutate apps in-memory to detect whether the second refresh re-parses
-  proc::proc.get_apps()[0].name = "Mutated";
+  // Rewrite the file but keep its timestamp, so only a re-parse would pick up the new name
+  const auto original_time = fs::last_write_time(apps_file);
+  writeAppsJson(apps_file, {"Rewritten"});
+  fs::last_write_time(apps_file, original_time);
 
-  // Second refresh with unchanged file — should be skipped
+  // Second refresh with an unchanged timestamp — should be skipped
   proc::refresh(apps_file.string());
-  EXPECT_EQ(proc::proc.get_apps()[0].name, "Mutated")
+  EXPECT_EQ(proc::proc.get_apps()[0].name, "OriginalApp")
     << "refresh() should skip re-parse when the file timestamp has not changed";
 
   // Cleanup

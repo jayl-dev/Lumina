@@ -91,8 +91,8 @@ namespace proc {
 
     ~proc_t();
 
-    const std::vector<ctx_t> &get_apps() const;
-    std::vector<ctx_t> &get_apps();
+    // Returns a copy: refresh() may replace the list from another thread at any time
+    std::vector<ctx_t> get_apps() const;
     std::string get_app_image(int app_id);
     std::string get_last_run_app_name();
     void terminate();
