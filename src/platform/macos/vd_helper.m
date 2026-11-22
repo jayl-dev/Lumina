@@ -245,6 +245,10 @@ int main(int argc, const char *argv[]) {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 
+    // Remember who spawned us: if Lumina dies without sending SIGTERM (e.g. a crash), we are
+    // reparented and must not keep the virtual display alive on our own.
+    const pid_t parentPid = getppid();
+
     // Set up signal handlers
     signal(SIGTERM, handle_signal);
     signal(SIGINT, handle_signal);
@@ -448,6 +452,10 @@ int main(int argc, const char *argv[]) {
     // Keep alive via CFRunLoop
     while (!shouldExit) {
       CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, false);
+      if (getppid() != parentPid) {
+        fprintf(stderr, "[vd_helper] Lumina (pid %d) exited, releasing the virtual display\n", parentPid);
+        break;
+      }
     }
 
     fprintf(stderr, "[vd_helper] Shutting down, releasing display %u\n", resultID);

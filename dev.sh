@@ -30,8 +30,9 @@ cmake --build build --target sunshine vd_helper --parallel 4
 
 INSTALL_DIR="$HOME/.local/share/lumina"
 mkdir -p "$INSTALL_DIR/assets/web"
-cp -f build/lumina "$INSTALL_DIR/lumina"
-cp -f build/vd_helper "$INSTALL_DIR/vd_helper"
+# Replace rather than overwrite: rewriting a binary that already ran trips "Code Signature Invalid"
+cp -f build/lumina "$INSTALL_DIR/lumina.new" && mv -f "$INSTALL_DIR/lumina.new" "$INSTALL_DIR/lumina"
+cp -f build/vd_helper "$INSTALL_DIR/vd_helper.new" && mv -f "$INSTALL_DIR/vd_helper.new" "$INSTALL_DIR/vd_helper"
 cp -f hid_entitlements.plist "$INSTALL_DIR/hid_entitlements.plist"
 cp -Rf build/assets/. "$INSTALL_DIR/assets/"
 

@@ -239,14 +239,22 @@ if [ "$IMPORT_SUNSHINE_CONFIG" = true ]; then
     ok "Copied Sunshine configuration to $CONFIG_DIR (source left unchanged)"
 fi
 
+# Install an executable as a new file rather than overwriting the old one in place. The kernel
+# caches code signatures per file; rewriting a binary that has already run leaves that cache
+# stale, and macOS then kills the next launch with "Code Signature Invalid".
+install_executable() {
+    local src="$1" dest="$2"
+    cp -fL "$src" "$dest.new" && mv -f "$dest.new" "$dest"
+}
+
 # Copy binary (follow symlinks)
-cp -fL "$BUILD_DIR/lumina" "$INSTALL_DIR/lumina" 2>/dev/null || \
-  cp -f "$BUILD_DIR/lumina-"* "$INSTALL_DIR/lumina" 2>/dev/null
+install_executable "$BUILD_DIR/lumina" "$INSTALL_DIR/lumina" 2>/dev/null || \
+  install_executable "$(ls "$BUILD_DIR"/lumina-* 2>/dev/null | head -1)" "$INSTALL_DIR/lumina" 2>/dev/null
 
 # Copy helper binaries
 for helper in vd_helper get_display_origin; do
     if [ -f "$BUILD_DIR/$helper" ]; then
-        cp -f "$BUILD_DIR/$helper" "$INSTALL_DIR/$helper"
+        install_executable "$BUILD_DIR/$helper" "$INSTALL_DIR/$helper"
         ok "Installed $helper"
     fi
 done
