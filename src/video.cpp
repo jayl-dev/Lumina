@@ -482,6 +482,17 @@ namespace video {
         device(std::move(encode_device)) {
     }
 
+    ~vt_encode_session_t() {
+      // Tear down VideoToolbox first: it guarantees no output callbacks once the device is gone
+      device.reset();
+    }
+
+    bool init(const config_t &client_config) {
+      return device->init_encoder(client_config, device->colorspace, [this](platf::vt_encoded_frame &&frame) {
+        on_encoded(std::move(frame));
+      });
+    }
+
     int convert(platf::img_t &img) override {
       if (!device) {
         return -1;
@@ -489,9 +500,13 @@ namespace video {
       return device->convert(img);
     }
 
-    // Frames are encoded one at a time and an IDR comes back on the call that requested it,
-    // so repeated requests between frames collapse into this flag without extra keyframes.
     void request_idr_frame() override {
+      // Up to two frames are in flight, so the client may ask again before the requested
+      // keyframe arrives; another expensive keyframe right behind it wouldn't help.
+      if (idr_in_flight) {
+        BOOST_LOG(debug) << "Coalescing IDR request while VideoToolbox keyframe is pending"sv;
+        return;
+      }
       force_idr = true;
     }
 
@@ -501,22 +516,84 @@ namespace video {
 
     // VideoToolbox has no reference frame invalidation; recover with an IDR frame instead
     void invalidate_ref_frames(int64_t first_frame, int64_t last_frame) override {
-      force_idr = true;
+      request_idr_frame();
     }
 
-    platf::vt_encoded_frame encode_frame(uint64_t frame_index) {
+    int encode_frame(int64_t frame_nr, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                     , perf_timing_t perf_timing
+#endif
+    ) {
       if (!device) {
-        return {};
+        return -1;
       }
 
-      auto result = device->encode_frame(frame_index, force_idr);
+      {
+        std::lock_guard lg {pending_mutex};
+        pending[frame_nr] = {packets, channel_data, frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                             , perf_timing
+#endif
+        };
+      }
+
+      if (force_idr) {
+        idr_in_flight = true;
+      }
+      if (!device->encode_frame(frame_nr, force_idr)) {
+        BOOST_LOG(error) << "VideoToolbox could not encode frame "sv << frame_nr;
+        return -1;
+      }
       force_idr = false;
-      return result;
+      return 0;
     }
 
   private:
+    struct pending_t {
+      safe::mail_raw_t::queue_t<packet_t> packets;
+      void *channel_data;
+      std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+      perf_timing_t perf_timing;
+#endif
+    };
+
+    // Called on a VideoToolbox output thread, in frame order
+    void on_encoded(platf::vt_encoded_frame &&frame) {
+      pending_t info;
+      {
+        std::lock_guard lg {pending_mutex};
+        auto it = pending.find(frame.frame_index);
+        if (it == pending.end()) {
+          BOOST_LOG(error) << "VideoToolbox returned unknown frame "sv << frame.frame_index;
+          return;
+        }
+        info = std::move(it->second);
+        pending.erase(pending.begin(), std::next(it));
+      }
+
+      if (frame.idr) {
+        idr_in_flight = false;
+      }
+
+      auto packet = std::make_unique<packet_raw_generic>(std::move(frame.data), frame.frame_index, frame.idr);
+      packet->channel_data = info.channel_data;
+      packet->frame_timestamp = info.frame_timestamp;
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+      if (info.perf_timing.active) {
+        info.perf_timing.encode_ready = std::chrono::steady_clock::now();
+      }
+      packet->perf_timing = info.perf_timing;
+#endif
+      info.packets->raise(std::move(packet));
+    }
+
     std::unique_ptr<platf::vt_encode_device_t> device;
     bool force_idr = false;
+    std::atomic<bool> idr_in_flight {false};
+
+    std::mutex pending_mutex;
+    std::map<int64_t, pending_t> pending;
   };
 
   struct sync_session_ctx_t {
@@ -1661,6 +1738,7 @@ namespace video {
     return 0;
   }
 
+  // Packets are raised from the VideoToolbox output thread as frames complete
   int encode_vt(int64_t frame_nr, vt_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
 #ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
                , perf_timing_t perf_timing
@@ -1673,30 +1751,11 @@ namespace video {
     }
     // LUMINA_STREAM_PERF_DIAGNOSTICS_END
 #endif
-    auto encoded_frame = session.encode_frame(frame_nr);
+    return session.encode_frame(frame_nr, packets, channel_data, frame_timestamp
 #ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
-    if (perf_timing.active) {
-      perf_timing.encode_ready = std::chrono::steady_clock::now();
-    }
+                                , perf_timing
 #endif
-    if (encoded_frame.data.empty()) {
-      BOOST_LOG(error) << "VideoToolbox returned empty packet";
-      return -1;
-    }
-
-    if (frame_nr != encoded_frame.frame_index) {
-      BOOST_LOG(error) << "VideoToolbox frame index mismatch " << frame_nr << " " << encoded_frame.frame_index;
-    }
-
-    auto packet = std::make_unique<packet_raw_generic>(std::move(encoded_frame.data), encoded_frame.frame_index, encoded_frame.idr);
-    packet->channel_data = channel_data;
-    packet->frame_timestamp = frame_timestamp;
-#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
-    packet->perf_timing = perf_timing;
-#endif
-    packets->raise(std::move(packet));
-
-    return 0;
+    );
   }
 
   int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
@@ -2120,11 +2179,12 @@ namespace video {
   }
 
   std::unique_ptr<vt_encode_session_t> make_vt_encode_session(const config_t &client_config, std::unique_ptr<platf::vt_encode_device_t> encode_device) {
-    if (!encode_device->init_encoder(client_config, encode_device->colorspace)) {
+    auto session = std::make_unique<vt_encode_session_t>(std::move(encode_device));
+    if (!session->init(client_config)) {
       return nullptr;
     }
 
-    return std::make_unique<vt_encode_session_t>(std::move(encode_device));
+    return session;
   }
 
   std::unique_ptr<encode_session_t> make_encode_session(platf::display_t *disp, const encoder_t &encoder, const config_t &config, int width, int height, std::unique_ptr<platf::encode_device_t> encode_device) {
@@ -2761,13 +2821,26 @@ namespace video {
     session->request_idr_frame();
 
     auto packets = mail::man->queue<packet_t>(mail::video_packets);
-    while (!packets->peek()) {
+    packet_t packet;
+    if (dynamic_cast<vt_encode_session_t *>(session.get())) {
+      // VideoToolbox delivers packets asynchronously; submit a single frame so no stray probe
+      // packets reach the stream after this session is gone
       if (encode(1, *session, packets, nullptr, {})) {
         return -1;
       }
+      packet = packets->pop(1s);
+      if (!packet) {
+        BOOST_LOG(error) << "VideoToolbox produced no packet for the probe frame"sv;
+        return -1;
+      }
+    } else {
+      while (!packets->peek()) {
+        if (encode(1, *session, packets, nullptr, {})) {
+          return -1;
+        }
+      }
+      packet = packets->pop();
     }
-
-    auto packet = packets->pop();
     if (!packet->is_idr()) {
       BOOST_LOG(error) << "First packet type is not an IDR frame"sv;
 

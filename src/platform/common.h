@@ -460,11 +460,15 @@ namespace platf {
     bool idr = false;
   };
 
-  struct vt_encode_device_t: encode_device_t {
-    virtual bool init_encoder(const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace) = 0;
+  // Receives encoded frames in frame order on a VideoToolbox output thread
+  using vt_packet_sink_t = std::function<void(vt_encoded_frame &&)>;
 
-    // Encode the frame most recently supplied via convert(); returns empty data on failure
-    virtual vt_encoded_frame encode_frame(uint64_t frame_index, bool force_idr) = 0;
+  struct vt_encode_device_t: encode_device_t {
+    virtual bool init_encoder(const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace, vt_packet_sink_t sink) = 0;
+
+    // Submit the frame most recently supplied via convert(); blocks only while the encoder pipeline
+    // is full. Returns false once the encoder has failed.
+    virtual bool encode_frame(uint64_t frame_index, bool force_idr) = 0;
   };
 
   enum class capture_e : int {
