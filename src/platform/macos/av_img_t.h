@@ -29,15 +29,19 @@ namespace platf {
   struct av_pixel_buf_t {
     CVPixelBufferRef buf;
 
-    // Constructor
+    // Retains the image buffer so it outlives the sample buffer regardless of release order
     explicit av_pixel_buf_t(CMSampleBufferRef sb):
         buf(
           CMSampleBufferGetImageBuffer(sb)
         ) {
       if (buf) {
+        CFRetain(buf);
         CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
       }
     }
+
+    av_pixel_buf_t(const av_pixel_buf_t &) = delete;
+    av_pixel_buf_t &operator=(const av_pixel_buf_t &) = delete;
 
     [[nodiscard]] uint8_t *data() const {
       return buf ? static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(buf)) : nullptr;
@@ -47,6 +51,7 @@ namespace platf {
     ~av_pixel_buf_t() {
       if (buf != nullptr) {
         CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+        CFRelease(buf);
       }
     }
   };

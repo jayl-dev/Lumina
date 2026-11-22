@@ -11,11 +11,13 @@
 #include "../tests_common.h"
 
 // standard includes
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <string_view>
 #include <thread>
 
 // lib imports
@@ -29,6 +31,8 @@
 #include <src/crypto.h>
 #include <src/httpcommon.h>
 #include <src/network.h>
+#include <src/nvhttp.h>
+#include <src/process.h>
 #include <src/utility.h>
 
 using namespace std::literals;
@@ -107,6 +111,7 @@ protected:
   std::filesystem::path web_dir_test_file;
 
   void SetUp() override {
+    nvhttp::expire_pair_sessions(std::chrono::steady_clock::time_point::max());
     // Save current config
     saved_username = config::sunshine.username;
     saved_password = config::sunshine.password;
@@ -134,10 +139,10 @@ protected:
     test_web_dir = std::filesystem::temp_directory_path() / "sunshine_test_confighttp";  // NOSONAR(cpp:S5443) - safe for tests
     std::filesystem::create_directories(test_web_dir / "web");
 
-    // Create test HTML file in WEB_DIR, creating parent directories with proper permissions
+    // Create the SPA entry document in WEB_DIR, creating parent directories with proper permissions
     std::filesystem::path web_dir_path(WEB_DIR);
     std::filesystem::create_directories(web_dir_path);
-    web_dir_test_file = web_dir_path / "test_page.html";
+    web_dir_test_file = web_dir_path / "index.html";
 
     std::ofstream test_html(web_dir_test_file);
     test_html << "<html><head><title>Test Page</title></head><body><h1>Test Page Content</h1></body></html>";
@@ -271,8 +276,8 @@ protected:
                                                 const std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Request> &request
                                               ) {
       // Call the actual confighttp::getPage function
-      // Note: This will read from WEB_DIR, so we need to ensure the file exists there
-      confighttp::getPage(response, request, "test_page.html", true, false);
+      // Note: This reads the SPA index from WEB_DIR, so the fixture creates it in SetUp().
+      confighttp::getPage(response, request, true, false);
     };
 
     // Add a route to test getPage without auth requirement
@@ -280,7 +285,7 @@ protected:
                                                        const std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Response> &response,
                                                        const std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Request> &request
                                                      ) {
-      confighttp::getPage(response, request, "test_page.html", false, false);
+      confighttp::getPage(response, request, false, false);
     };
 
     // Add a route to test getPage with redirect_if_username
@@ -288,7 +293,7 @@ protected:
                                                          const std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Response> &response,
                                                          const std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Request> &request
                                                        ) {
-      confighttp::getPage(response, request, "test_page.html", false, true);
+      confighttp::getPage(response, request, false, true);
     };
 
     // Add a route to test getLocale
@@ -307,6 +312,11 @@ protected:
                                                 ) {
       confighttp::browseDirectory(response, request);
     };
+    server->resource["^/pairing-test$"]["DELETE"] = confighttp::cancelPairing;
+    server->resource["^/pairing-test$"]["GET"] = confighttp::getPendingPairings;
+    server->resource["^/pairing-test$"]["POST"] = confighttp::savePin;
+    server->resource["^/api/apps$"]["POST"] = confighttp::saveApp;
+    server->default_resource["GET"] = confighttp::getFallbackPage;
 
     // Start server
     server_thread = std::thread([this]() {  // NOSONAR(cpp:S6168) - jthread not available on FreeBSD 14.3 libc++
@@ -345,6 +355,7 @@ protected:
     config::sunshine.salt = saved_salt;
     config::sunshine.locale = saved_locale;
     config::sunshine.csrf_allowed_origins = saved_csrf_allowed_origins;
+    nvhttp::expire_pair_sessions(std::chrono::steady_clock::time_point::max());
 
     // Clean up test HTML file from WEB_DIR
     if (std::filesystem::exists(web_dir_test_file)) {
@@ -358,6 +369,80 @@ protected:
 
   static std::string create_auth_header(const std::string &username, const std::string &password) {
     return "Basic " + SimpleWeb::Crypto::Base64::encode(username + ":" + password);
+  }
+
+  /**
+   * @brief Build authenticated JSON POST headers with a fresh CSRF token.
+   *
+   * @return Headers suitable for POST /api/apps.
+   */
+  SimpleWeb::CaseInsensitiveMultimap authenticated_json_headers() {
+    SimpleWeb::CaseInsensitiveMultimap auth_headers;
+    auth_headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+    const auto token_response = client->request("GET", "/csrf-token-test", "", auth_headers);
+    EXPECT_EQ(token_response->status_code, "200 OK");
+    const auto csrf_token = nlohmann::json::parse(token_response->content.string()).at("csrf_token").get<std::string>();
+
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+    headers.emplace("Content-Type", "application/json");
+    headers.emplace("X-CSRF-Token", csrf_token);
+    return headers;
+  }
+
+  /**
+   * @brief Redirect apps.json to a temporary directory and restore process state on destruction.
+   */
+  class ScopedSaveAppAppsFile {
+  public:
+    /**
+     * @brief Create the temporary apps.json directory and take ownership of `proc::proc`.
+     *
+     * @param subdir Directory name under `SUNSHINE_TEST_BIN_DIR`.
+     */
+    explicit ScopedSaveAppAppsFile(std::string_view subdir):
+        test_dir(std::filesystem::path(SUNSHINE_TEST_BIN_DIR) / subdir) {
+      std::filesystem::create_directories(test_dir);
+      config::stream.file_apps = (test_dir / "apps.json").string();
+    }
+
+    ScopedSaveAppAppsFile(const ScopedSaveAppAppsFile &) = delete;
+    ScopedSaveAppAppsFile &operator=(const ScopedSaveAppAppsFile &) = delete;
+
+    /**
+     * @brief Restore `file_apps`/`proc::proc` and remove the temporary directory.
+     */
+    ~ScopedSaveAppAppsFile() noexcept {
+      try {
+        config::stream.file_apps = previous_file_apps;
+        proc::proc = std::move(previous_proc);
+        std::error_code ec;
+        std::filesystem::remove_all(test_dir, ec);
+      } catch (...) {
+        ADD_FAILURE() << "Failed to restore apps.json path or process manager state";
+      }
+    }
+
+    std::filesystem::path test_dir;  ///< Temporary directory for apps.json.
+    std::string previous_file_apps {config::stream.file_apps};  ///< Prior apps.json path.
+    proc::proc_t previous_proc {std::move(proc::proc)};  ///< Prior process manager state.
+  };
+
+  /**
+   * @brief Insert a test pairing request into the production pending-session registry.
+   *
+   * @return Unguessable approval identifier assigned to the request.
+   */
+  static std::string insert_pending_pairing() {
+    nvhttp::pair_session_t session;
+    session.client.uniqueID = "rest-api-client";
+    session.async_insert_pin.salt = "ff5dc6eda99339a8a0793e216c4257c4";
+    session.async_insert_pin.device_name = "REST client";
+    session.async_insert_pin.address = "192.0.2.30";
+
+    std::string pairing_id;
+    EXPECT_EQ(nvhttp::insert_pair_session(std::move(session), pairing_id), nvhttp::pair_session_insert_e::ADDED);
+    return pairing_id;
   }
 
   static void assert_security_headers(const std::shared_ptr<SimpleWeb::Client<SimpleWeb::HTTPS>::Response> &response) {
@@ -382,6 +467,113 @@ protected:
     ASSERT_TRUE(body.find(expected_status_code) != std::string::npos);
   }
 };
+
+TEST_F(ConfigHttpTest, PairingMutationsRejectUnauthenticatedRestRequests) {
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Content-Type", "application/json");
+
+  const auto post_response = client->request(
+    "POST",
+    "/pairing-test",
+    R"({"pairing_id":"0123456789abcdef0123456789abcdef","pin":"1234","name":"Client"})",
+    headers
+  );
+  EXPECT_EQ(post_response->status_code, "401 Unauthorized");
+
+  const auto delete_response = client->request(
+    "DELETE",
+    "/pairing-test",
+    R"({"pairing_id":"0123456789abcdef0123456789abcdef"})",
+    headers
+  );
+  EXPECT_EQ(delete_response->status_code, "401 Unauthorized");
+}
+
+TEST_F(ConfigHttpTest, PairingMutationsRejectCrossOriginRestRequestsWithoutCsrfToken) {
+  const std::string pairing_id = insert_pending_pairing();
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+  headers.emplace("Content-Type", "application/json");
+  headers.emplace("Origin", "https://example.invalid");
+
+  const auto post_response = client->request(
+    "POST",
+    "/pairing-test",
+    nlohmann::json {
+      {"pairing_id", pairing_id},
+      {"pin", "1234"},
+      {"name", "Client"},
+    }
+      .dump(),
+    headers
+  );
+  EXPECT_EQ(post_response->status_code, "400 Bad Request");
+  EXPECT_TRUE(post_response->content.string().contains("Missing CSRF token"));
+
+  const auto delete_response = client->request(
+    "DELETE",
+    "/pairing-test",
+    nlohmann::json {{"pairing_id", pairing_id}}.dump(),
+    headers
+  );
+  EXPECT_EQ(delete_response->status_code, "400 Bad Request");
+  EXPECT_TRUE(delete_response->content.string().contains("Missing CSRF token"));
+  EXPECT_EQ(nvhttp::get_pending_pairings().size(), 1);
+}
+
+TEST_F(ConfigHttpTest, PairingRestApiListsAuthenticatedPendingRequests) {
+  const std::string pairing_id = insert_pending_pairing();
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+
+  const auto response = client->request("GET", "/pairing-test", "", headers);
+  ASSERT_EQ(response->status_code, "200 OK");
+  const auto body = nlohmann::json::parse(response->content.string());
+  ASSERT_EQ(body.at("pairings").size(), 1);
+  EXPECT_EQ(body.at("pairings").front().at("id"), pairing_id);
+  EXPECT_EQ(body.at("pairings").front().at("name"), "REST client");
+  EXPECT_EQ(body.at("pairings").front().at("address"), "192.0.2.30");
+}
+
+TEST_F(ConfigHttpTest, PairingRestApiRejectsMalformedFieldsWithoutConsumingRequest) {
+  const std::string pairing_id = insert_pending_pairing();
+  const std::array invalid_requests {
+    nlohmann::json {{"pairing_id", "not-a-pairing-id"}, {"pin", "1234"}, {"name", "Client"}},
+    nlohmann::json {{"pairing_id", pairing_id}, {"pin", "123"}, {"name", "Client"}},
+    nlohmann::json {{"pairing_id", pairing_id}, {"pin", "12a4"}, {"name", "Client"}},
+    nlohmann::json {{"pairing_id", pairing_id}, {"pin", "1234"}, {"name", ""}},
+    nlohmann::json {{"pairing_id", pairing_id}, {"pin", "1234"}, {"name", std::string(nvhttp::MAX_PAIRING_CLIENT_NAME_SIZE + 1, 'a')}},
+  };
+
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+  headers.emplace("Content-Type", "application/json");
+  for (const auto &request : invalid_requests) {
+    const auto response = client->request("POST", "/pairing-test", request.dump(), headers);
+    EXPECT_EQ(response->status_code, "400 Bad Request");
+  }
+
+  const auto pending = nvhttp::get_pending_pairings();
+  ASSERT_EQ(pending.size(), 1);
+  EXPECT_EQ(pending.front().id, pairing_id);
+}
+
+TEST_F(ConfigHttpTest, PairingRestApiCancelsOnlyExplicitRequest) {
+  const std::string pairing_id = insert_pending_pairing();
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+  headers.emplace("Content-Type", "application/json");
+
+  const auto response = client->request(
+    "DELETE",
+    "/pairing-test",
+    nlohmann::json {{"pairing_id", pairing_id}}.dump(),
+    headers
+  );
+  ASSERT_EQ(response->status_code, "200 OK");
+  EXPECT_TRUE(nlohmann::json::parse(response->content.string()).at("status").get<bool>());
+  EXPECT_TRUE(nvhttp::get_pending_pairings().empty());
+}
 
 // Test: confighttp::authenticate() rejects requests without auth header
 TEST_F(ConfigHttpTest, AuthenticateRejectsNoAuth) {
@@ -716,6 +908,26 @@ TEST_F(ConfigHttpTest, GetPageNoRedirectWhenUsernameEmpty) {
 
   // Restore username
   config::sunshine.username = saved;
+}
+
+// Test: browser routes fall back to the SPA entry document
+TEST_F(ConfigHttpTest, BrowserRouteFallsBackToSpaEntry) {
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+
+  for (const std::string_view path : {"/future-browser-route", "/apiary", "/assets2"}) {
+    const auto response = client->request("GET", std::string {path}, "", headers);
+    EXPECT_EQ(response->status_code, "200 OK") << path;
+    EXPECT_NE(response->content.string().find("Test Page Content"), std::string::npos) << path;
+  }
+}
+
+// Test: server-owned route prefixes retain 404 behavior instead of returning the SPA
+TEST_F(ConfigHttpTest, ServerResourcePrefixesDoNotFallBackToSpaEntry) {
+  for (const std::string_view path : {"/api", "/api/unknown", "/assets", "/assets/missing.js", "/images", "/images/missing.png"}) {
+    const auto response = client->request("GET", std::string {path});
+    EXPECT_EQ(response->status_code, "404 Not Found") << path;
+  }
 }
 
 // Test: confighttp::getLocale() returns locale JSON
@@ -1401,3 +1613,150 @@ TEST_F(BrowseDirectoryTest, GetWindowsDrives_EntriesHaveCorrectFormat) {
   }
 }
 #endif
+
+TEST_F(ConfigHttpTest, PairingRestApiReportsIncompleteHandshakeAsFailure) {
+  const std::string pairing_id = insert_pending_pairing();
+  SimpleWeb::CaseInsensitiveMultimap headers;
+  headers.emplace("Authorization", create_auth_header("testuser", "testpass"));
+  headers.emplace("Content-Type", "application/json");
+
+  const auto response = client->request(
+    "POST",
+    "/pairing-test",
+    nlohmann::json {
+      {"pairing_id", pairing_id},
+      {"pin", "9875"},
+      {"name", "Client"},
+    }
+      .dump(),
+    headers
+  );
+  ASSERT_EQ(response->status_code, "200 OK");
+  EXPECT_FALSE(nlohmann::json::parse(response->content.string()).at("status").get<bool>());
+  EXPECT_TRUE(nvhttp::get_pending_pairings().empty());
+}
+
+TEST_F(ConfigHttpTest, SaveAppNormalizesOptionalImagePath) {
+  using json = nlohmann::json;
+  ScopedSaveAppAppsFile apps_file("save_app_image_path");
+  const auto headers = authenticated_json_headers();
+
+  const std::array<std::pair<json, std::string>, 7> cases {{
+    {json::object(), ""},
+    {json {{"image-path", nullptr}}, ""},
+    {json {{"image-path", 42}}, ""},
+    {json {{"image-path", ""}}, ""},
+    {json {{"image-path", " \t "}}, ""},
+    {json {{"image-path", "  /covers/cover.png  "}}, "/covers/cover.png"},
+    {json {{"image-path", "/covers/cover.png"}}, "/covers/cover.png"},
+  }};
+
+  for (const auto &[fields, expected_path] : cases) {
+    for (const int index : {-1, 0}) {
+      SCOPED_TRACE(fields.dump() + " index=" + std::to_string(index));
+      json initial {{"env", json::object()}, {"apps", json::array()}};
+      if (index == 0) {
+        initial["apps"].push_back({{"name", "Before"}, {"image-path", "old.png"}});
+      }
+      {
+        std::ofstream file(config::stream.file_apps);
+        file << initial.dump();
+      }
+
+      json input = fields;
+      input["name"] = "Image test";
+      input["index"] = index;
+      const auto response = client->request("POST", "/api/apps", input.dump(), headers);
+      ASSERT_EQ(response->status_code, "200 OK");
+      EXPECT_TRUE(json::parse(response->content.string()).at("status").get<bool>());
+
+      std::ifstream file(config::stream.file_apps);
+      const auto saved = json::parse(file);
+      json expected {{"name", "Image test"}};
+      if (!expected_path.empty()) {
+        expected["image-path"] = expected_path;
+      }
+      EXPECT_EQ(saved.at("apps"), json::array({expected}));
+      EXPECT_EQ(saved.at("env"), initial.at("env"));
+    }
+  }
+}
+
+TEST_F(ConfigHttpTest, SaveAppOmitsNullOptionalFieldsAndPreservesConfiguredValues) {
+  using json = nlohmann::json;
+  ScopedSaveAppAppsFile apps_file("save_app_optional_fields");
+  {
+    std::ofstream file(config::stream.file_apps);
+    file << json {{"env", json::object()}, {"apps", json::array()}}.dump();
+  }
+  const auto headers = authenticated_json_headers();
+
+  json null_fields {
+    {"name", "Null optional"},
+    {"index", -1},
+    {"prep-cmd", nullptr},
+    {"detached", nullptr},
+    {"exclude-global-prep-cmd", nullptr},
+    {"elevated", nullptr},
+    {"auto-detach", nullptr},
+    {"wait-all", nullptr},
+    {"exit-timeout", nullptr},
+    {"cmd", nullptr},
+    {"output", nullptr},
+    {"working-dir", nullptr},
+    {"image-path", nullptr},
+  };
+  auto null_response = client->request("POST", "/api/apps", null_fields.dump(), headers);
+  ASSERT_EQ(null_response->status_code, "200 OK");
+  {
+    std::ifstream file(config::stream.file_apps);
+    const auto saved = json::parse(file);
+    ASSERT_EQ(saved.at("apps").size(), 1U);
+    EXPECT_EQ(saved.at("apps").at(0), (json {{"name", "Null optional"}}));
+  }
+
+  json configured {
+    {"name", "Configured"},
+    {"index", -1},
+    {"prep-cmd", json::array({json {{"do", "prepare"}, {"undo", "restore"}, {"elevated", false}}})},
+    {"detached", json::array({"background"})},
+    {"exclude-global-prep-cmd", false},
+    {"elevated", false},
+    {"auto-detach", false},
+    {"wait-all", false},
+    {"exit-timeout", 0},
+    {"cmd", "launch --argument"},
+    {"output", "/logs/app.log"},
+    {"working-dir", "/apps"},
+    {"image-path", "/covers/cover.png"},
+  };
+  auto configured_response = client->request("POST", "/api/apps", configured.dump(), headers);
+  ASSERT_EQ(configured_response->status_code, "200 OK");
+  {
+    std::ifstream file(config::stream.file_apps);
+    const auto saved = json::parse(file);
+    ASSERT_EQ(saved.at("apps").size(), 2U);
+    json expected = configured;
+    expected.erase("index");
+    EXPECT_EQ(saved.at("apps").at(0), expected);
+  }
+
+  json nested_null_prep {
+    {"name", "Prep null members"},
+    {"index", -1},
+    {"prep-cmd", json::array({json {{"do", "prepare"}, {"undo", nullptr}, {"elevated", nullptr}}})},
+  };
+  auto nested_response = client->request("POST", "/api/apps", nested_null_prep.dump(), headers);
+  ASSERT_EQ(nested_response->status_code, "200 OK");
+  {
+    std::ifstream file(config::stream.file_apps);
+    const auto saved = json::parse(file);
+    ASSERT_EQ(saved.at("apps").size(), 3U);
+    const auto &app = saved.at("apps").at(2);
+    ASSERT_TRUE(app.contains("prep-cmd"));
+    ASSERT_EQ(app.at("prep-cmd").size(), 1U);
+    EXPECT_EQ(app.at("prep-cmd").at(0), (json {{"do", "prepare"}}));
+    EXPECT_FALSE(app.at("prep-cmd").at(0).contains("undo"));
+    EXPECT_FALSE(app.at("prep-cmd").at(0).contains("elevated"));
+  }
+}

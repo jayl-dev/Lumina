@@ -3,13 +3,21 @@
  * @brief Test src/stream.*
  */
 
+#include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
+
+#include <src/network.h>
 
 namespace stream {
   std::vector<uint8_t> concat_and_insert(uint64_t insert_size, uint64_t slice_size, const std::string_view &data1, const std::string_view &data2);
+  std::optional<std::pair<std::uint16_t, std::string_view>> parse_control_packet(const ENetPacket &packet);
+  bool test_receive_ping_endpoints(bool session_id_pings);
 }
 
 #include "../tests_common.h"
@@ -36,4 +44,54 @@ TEST(ConcatAndInsertTests, ConcatSmallStrideTest) {
   auto res = stream::concat_and_insert(1, 1, std::string_view {b1, sizeof(b1)}, std::string_view {b2, sizeof(b2)});
   auto expected = std::vector<uint8_t> {0, 'a', 0, 'b', 0, 'c', 0, 'd', 0, 'e'};
   ASSERT_EQ(res, expected);
+}
+
+TEST(ControlPacketTests, RejectsZeroLengthPacket) {
+  net::packet_t packet {enet_packet_create(nullptr, 0, 0)};
+
+  ASSERT_NE(packet, nullptr);
+  EXPECT_EQ(packet->data, nullptr);
+  EXPECT_EQ(stream::parse_control_packet(*packet), std::nullopt);
+}
+
+TEST(ControlPacketTests, RejectsOneBytePacket) {
+  const std::uint8_t data {0x06};
+  net::packet_t packet {enet_packet_create(&data, sizeof(data), 0)};
+
+  ASSERT_NE(packet, nullptr);
+  EXPECT_EQ(stream::parse_control_packet(*packet), std::nullopt);
+}
+
+TEST(ControlPacketTests, AcceptsTypeWithoutPayload) {
+  const std::array<std::uint8_t, 2> data {0x06, 0x02};
+  net::packet_t packet {enet_packet_create(data.data(), data.size(), 0)};
+
+  ASSERT_NE(packet, nullptr);
+  auto message = stream::parse_control_packet(*packet);
+  ASSERT_TRUE(message);
+  EXPECT_EQ(message->first, 0x0206);
+  EXPECT_TRUE(message->second.empty());
+}
+
+TEST(ControlPacketTests, AcceptsTypeAndPayload) {
+  const std::array<std::uint8_t, 5> data {0x06, 0x02, 'a', 'b', 'c'};
+  net::packet_t packet {enet_packet_create(data.data(), data.size(), 0)};
+
+  ASSERT_NE(packet, nullptr);
+  auto message = stream::parse_control_packet(*packet);
+  ASSERT_TRUE(message);
+  EXPECT_EQ(message->first, 0x0206);
+  EXPECT_EQ(message->second, "abc");
+}
+
+TEST(StreamPingTests, KeepsLegacyAudioAndVideoSenderEndpointsSeparate) {
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    ASSERT_TRUE(stream::test_receive_ping_endpoints(false)) << "Attempt " << attempt;
+  }
+}
+
+TEST(StreamPingTests, KeepsSessionIdAudioAndVideoSenderEndpointsSeparate) {
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    ASSERT_TRUE(stream::test_receive_ping_endpoints(true)) << "Attempt " << attempt;
+  }
 }

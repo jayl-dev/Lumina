@@ -6,15 +6,15 @@ import {
 } from '@lucide/vue'
 import Checkbox from "../../Checkbox.vue";
 
-const props = defineProps([
-  'platform',
-  'config'
-])
+const props = defineProps({
+  platform: String,
+  config: Object,
+})
 
 const defaultMoonlightPort = 47989
 
 const config = ref(props.config)
-const effectivePort = computed(() => +config.value?.port ?? defaultMoonlightPort)
+const effectivePort = computed(() => Number(config.value?.port ?? defaultMoonlightPort))
 </script>
 
 <template>
@@ -102,12 +102,6 @@ const effectivePort = computed(() => +config.value?.port ?? defaultMoonlightPort
           <td>{{+effectivePort + 9}} - {{+effectivePort + 11}}</td>
           <td></td>
         </tr>
-        <!--            <tr>-->
-        <!--              &lt;!&ndash; Mic &ndash;&gt;-->
-        <!--              <td>UDP</td>-->
-        <!--              <td>{{+effectivePort + 13}}</td>-->
-        <!--              <td></td>-->
-        <!--            </tr>-->
         </tbody>
       </table>
       <!-- add warning about exposing web ui to the internet -->
@@ -180,9 +174,13 @@ const effectivePort = computed(() => +config.value?.port ?? defaultMoonlightPort
       <div class="form-text">{{ $t('config.packetsize_desc') }}</div>
     </div>
 
+    <!-- DSCP Tagging -->
+    <Checkbox class="mb-3"
+              id="dscp_tagging"
+              locale-prefix="config"
+              v-model="config.dscp_tagging"
+              default="true"
+    ></Checkbox>
+
   </div>
 </template>
-
-<style scoped>
-
-</style>

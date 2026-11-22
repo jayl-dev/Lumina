@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="en" data-bs-theme="auto">
-
-<head>
-  <%- header %>
-</head>
-
-<body id="app" v-cloak>
+<template>
   <Navbar></Navbar>
   <div id="content" class="container">
     <div class="my-4">
@@ -55,22 +48,21 @@
         <b>{{ $t('_common.success') }}</b> {{ $t('password.success_msg') }}
       </div>
       <div class="mb-3 mt-4">
-        <button class="btn btn-primary">
+        <button type="submit" class="btn btn-primary">
           <save :size="18" class="icon"></save>
           {{ $t('_common.save') }}
         </button>
       </div>
     </form>
   </div>
-</body>
-<script type="module">
-  import { createApp } from 'vue'
-  import { initApp } from './init'
+</template>
+
+<script>
   import Navbar from './Navbar.vue'
   import { apiFetch } from './fetch_utils'
   import { Save } from '@lucide/vue'
 
-  const app = createApp({
+  export default {
     components: {
       Navbar,
       Save,
@@ -89,33 +81,35 @@
       };
     },
     methods: {
-      save() {
+      /**
+       * @brief Update credentials and reload after a successful response.
+       *
+       * @return {Promise<void>} Completion of the credential request and response processing.
+       */
+      async save() {
         this.error = null;
-        apiFetch("./api/password", {
+        const response = await apiFetch("./api/password", {
           method: "POST",
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(this.passwordData),
-        }).then((r) => {
-          if (r.status === 200) {
-            r.json().then((rj) => {
-              this.success = rj.status;
-              if (this.success === true) {
-                setTimeout(() => {
-                  document.location.reload();
-                }, 5000);
-              } else {
-                this.error = rj.error;
-              }
-            });
-          } else {
-            this.error = "Internal Server Error";
-          }
         });
+        if (response.status !== 200) {
+          this.error = "Internal Server Error";
+          return;
+        }
+
+        const result = await response.json();
+        this.success = result.status;
+        if (this.success === true) {
+          setTimeout(() => {
+            document.location.reload();
+          }, 5000);
+        } else {
+          this.error = result.error;
+        }
       },
     },
-  });
-
-  initApp(app);
+  }
 </script>

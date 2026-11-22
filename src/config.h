@@ -41,6 +41,9 @@ namespace config {
 
     int min_threads;  // Minimum number of threads/slices for CPU encoding
 
+    int max_stream_width;  // Maximum streamed video width; larger requests are downscaled. 0 disables the cap.
+    int max_stream_height;  // Maximum streamed video height; larger requests are downscaled. 0 disables the cap.
+
     struct {
       std::string sw_preset;
       std::string sw_tune;
@@ -83,8 +86,6 @@ namespace config {
     } amd;
 
     struct {
-      int vt_allow_sw;
-      int vt_require_sw;
       int vt_realtime;
       int vt_max_frame_delay;
       int vt_coder;
@@ -185,6 +186,9 @@ namespace config {
 
     // Limit the packetsize to avoid fragmentation on a low MTU link
     int packetsize;
+
+    // Allow DSCP tagging of audio and video traffic when requested by the client
+    bool dscp_tagging;
   };
 
   struct nvhttp_t {
@@ -296,4 +300,6 @@ namespace config {
 
   int parse(int argc, char *argv[]);
   std::unordered_map<std::string, std::string> parse_config(const std::string_view &file_content);
+  bool cap_stream_resolution(int &width, int &height);
+  bool parse_stream_resolution(const std::string_view &value, int &width, int &height);
 }  // namespace config

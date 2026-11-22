@@ -442,14 +442,13 @@ namespace confighttp {
   }
 
   /**
-   * @brief Get an HTML page.
+   * @brief Serve the Web UI single-page application entry document.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
-   * @param html_file The HTML file to serve (relative to WEB_DIR).
    * @param require_auth Whether to require authentication (default: true).
    * @param redirect_if_username If true, redirect to "/" when the username is set (for welcome page).
    */
-  void getPage(const resp_https_t &response, const req_https_t &request, const char *html_file, const bool require_auth, const bool redirect_if_username) {
+  void getPage(const resp_https_t &response, const req_https_t &request, const bool require_auth, const bool redirect_if_username) {
     // Special handling for welcome page: redirect if the username is already set
     if (redirect_if_username && !config::sunshine.username.empty()) {
       send_redirect(response, request, "/");
@@ -462,7 +461,7 @@ namespace confighttp {
 
     print_req(request);
 
-    const std::string content = file_handler::read_file((std::string(WEB_DIR) + html_file).c_str());
+    const std::string content = file_handler::read_file(WEB_DIR "index.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
 
@@ -471,6 +470,25 @@ namespace confighttp {
     headers.emplace("Content-Security-Policy", "frame-ancestors 'none';");
 
     response->write(content, headers);
+  }
+
+  /**
+   * @brief Serve the SPA entry for browser routes and keep 404 responses for server-owned prefixes.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
+  void getFallbackPage(const resp_https_t &response, const req_https_t &request) {
+    const std::string_view path = request->path;
+    const auto has_server_prefix = [path](const std::string_view prefix) {
+      return path == prefix || (path.starts_with(prefix) && path.length() > prefix.length() && path[prefix.length()] == '/');
+    };
+
+    if (has_server_prefix("/api") || has_server_prefix("/assets") || has_server_prefix("/images")) {
+      not_found(response, request);
+      return;
+    }
+
+    getPage(response, request);
   }
 
   /**
@@ -646,6 +664,103 @@ namespace confighttp {
   }
 
   /**
+   * @brief Remove object members whose values are JSON null.
+   *
+   * @param object JSON object to mutate.
+   * @param members Member names to inspect.
+   */
+  void erase_null_members(nlohmann::json &object, std::initializer_list<const char *> members) {
+    for (const char *member : members) {
+      if (object.contains(member) && object[member].is_null()) {
+        object.erase(member);
+      }
+    }
+  }
+
+  /**
+   * @brief Drop empty or invalid prep-cmd arrays and null prep-command members.
+   *
+   * @param input_tree Application JSON from the save request, mutated in place.
+   */
+  void normalize_prep_cmd_field(nlohmann::json &input_tree) {
+    if (!input_tree.contains("prep-cmd")) {
+      return;
+    }
+    if (!input_tree["prep-cmd"].is_array() || input_tree["prep-cmd"].empty()) {
+      input_tree.erase("prep-cmd");
+      return;
+    }
+
+    for (auto &cmd : input_tree["prep-cmd"]) {
+      if (!cmd.is_object()) {
+        continue;
+      }
+      erase_null_members(cmd, {"do", "undo", "elevated"});
+    }
+  }
+
+  /**
+   * @brief Drop empty or invalid detached command arrays.
+   *
+   * @param input_tree Application JSON from the save request, mutated in place.
+   */
+  void normalize_detached_field(nlohmann::json &input_tree) {
+    if (!input_tree.contains("detached")) {
+      return;
+    }
+    if (!input_tree["detached"].is_array() || input_tree["detached"].empty()) {
+      input_tree.erase("detached");
+    }
+  }
+
+  /**
+   * @brief Trim cover paths and omit missing, non-string, empty, or whitespace-only values.
+   *
+   * @param input_tree Application JSON from the save request, mutated in place.
+   */
+  void normalize_image_path_field(nlohmann::json &input_tree) {
+    std::string image_path;
+    if (input_tree.contains("image-path") && input_tree["image-path"].is_string()) {
+      image_path = input_tree["image-path"].get<std::string>();
+    }
+    boost::trim(image_path);
+    if (image_path.empty()) {
+      input_tree.erase("image-path");
+      return;
+    }
+    input_tree["image-path"] = image_path;
+  }
+
+  /**
+   * @brief Omit null optional application fields and normalize empty collections and cover paths.
+   *
+   * Required `name`/`index` handling stays with the caller. Explicit `false` and `0` values are kept.
+   * Null `do`, `undo`, and `elevated` members are removed from preparation-command objects.
+   * Missing, non-string, empty, or whitespace-only image-path values are omitted from the saved
+   * application. Nonempty string values are trimmed before saving.
+   *
+   * @param input_tree Application JSON from the save request, mutated in place.
+   */
+  void normalize_optional_app_fields(nlohmann::json &input_tree) {
+    erase_null_members(input_tree, {
+                                     "prep-cmd",
+                                     "detached",
+                                     "exclude-global-prep-cmd",
+                                     "elevated",
+                                     "auto-detach",
+                                     "wait-all",
+                                     "exit-timeout",
+                                     "cmd",
+                                     "output",
+                                     "working-dir",
+                                     "image-path",
+                                   });
+    normalize_prep_cmd_field(input_tree);
+    normalize_detached_field(input_tree);
+    normalize_image_path_field(input_tree);
+  }
+
+  /**
    * @brief Save an application. To save a new application, the index must be `-1`. To update an existing application, you must provide the current index of the application.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -702,13 +817,7 @@ namespace confighttp {
       BOOST_LOG(info) << file;
       nlohmann::json file_tree = nlohmann::json::parse(file);
 
-      if (input_tree["prep-cmd"].empty()) {
-        input_tree.erase("prep-cmd");
-      }
-
-      if (input_tree["detached"].empty()) {
-        input_tree.erase("detached");
-      }
+      normalize_optional_app_fields(input_tree);
 
       auto &apps_node = file_tree["apps"];
       int index = input_tree["index"].get<int>();  // this will intentionally cause an exception if the provided value is the wrong type
@@ -1324,18 +1433,90 @@ namespace confighttp {
   }
 
   /**
-   * @brief Send a pin code to the host. The pin is generated from the Moonlight client during the pairing process.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
+   * @brief List client pairing requests that are waiting for PIN approval.
+   *
+   * @api_examples{/api/pin| GET| null}
+   */
+  void getPendingPairings(const resp_https_t &response, const req_https_t &request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    nlohmann::json output_tree;
+    output_tree["pairings"] = nlohmann::json::array();
+    for (const auto &pairing : nvhttp::get_pending_pairings()) {
+      output_tree["pairings"].push_back({
+        {"id", pairing.id},
+        {"name", pairing.name},
+        {"address", pairing.address},
+      });
+    }
+    send_response(response, output_tree);
+  }
+
+  /**
+   * @brief Cancel a client pairing request that is waiting for PIN approval.
+   * The body for the delete request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "pairing_id": "<pairing_id>"
+   * }
+   * @endcode
+   *
+   * @api_examples{/api/pin| DELETE| {"pairing_id":"0123456789abcdef0123456789abcdef"}}
+   */
+  void cancelPairing(const resp_https_t &response, const req_https_t &request) {
+    if (!check_content_type(response, request, "application/json")) {
+      return;
+    }
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    const std::string client_id = get_client_id(request);
+    if (!validate_csrf_token(response, request, client_id)) {
+      return;
+    }
+
+    print_req(request);
+
+    std::stringstream ss;
+    ss << request->content.rdbuf();
+    try {
+      const nlohmann::json input_tree = nlohmann::json::parse(ss);
+      const std::string pairing_id = input_tree.value("pairing_id", "");
+      if (!nvhttp::is_valid_pairing_id(pairing_id)) {
+        bad_request(response, request, "pairing_id must contain exactly 32 hexadecimal characters");
+        return;
+      }
+
+      nlohmann::json output_tree;
+      output_tree["status"] = nvhttp::cancel_pairing(pairing_id);
+      send_response(response, output_tree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "CancelPairing: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
+   * @brief Submit a PIN and return whether the selected client completes pairing.
+   *
+   * The request remains open for up to the configured `ping_timeout` while
+   * Moonlight completes the cryptographic handshake. A wrong PIN, protocol
+   * failure, cancellation, or timeout returns `{"status":false}`.
    * The body for the post request should be JSON serialized in the following format:
    * @code{.json}
    * {
+   *   "pairing_id": "<pairing_id>",
    *   "pin": "<pin>",
    *   "name": "Friendly Client Name"
    * }
    * @endcode
    *
-   * @api_examples{/api/pin| POST| {"pin":"1234","name":"My PC"}}
+   * @api_examples{/api/pin| POST| {"pairing_id":"0123456789abcdef0123456789abcdef","pin":"1234","name":"My PC"}}
    */
   void savePin(const resp_https_t &response, const req_https_t &request) {
     if (!check_content_type(response, request, "application/json")) {
@@ -1358,15 +1539,22 @@ namespace confighttp {
       nlohmann::json output_tree;
       nlohmann::json input_tree = nlohmann::json::parse(ss);
       const std::string name = input_tree.value("name", "");
+      const std::string pairing_id = input_tree.value("pairing_id", "");
       const std::string pin = input_tree.value("pin", "");
-
-      int _pin = 0;
-      _pin = std::stoi(pin);
-      if (_pin < 0 || _pin > 9999) {
-        bad_request(response, request, "PIN must be between 0000 and 9999");
+      if (!nvhttp::is_valid_pairing_id(pairing_id)) {
+        bad_request(response, request, "pairing_id must contain exactly 32 hexadecimal characters");
+        return;
+      }
+      if (!nvhttp::is_valid_pairing_pin(pin)) {
+        bad_request(response, request, "PIN must contain exactly 4 numeric digits");
+        return;
+      }
+      if (!nvhttp::is_valid_pairing_name(name)) {
+        bad_request(response, request, "Client name must contain between 1 and 128 bytes");
+        return;
       }
 
-      output_tree["status"] = nvhttp::pin(pin, name);
+      output_tree["status"] = nvhttp::pin(pairing_id, pin, name);
       send_response(response, output_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePin: "sv << e.what();
@@ -1745,10 +1933,10 @@ namespace confighttp {
 
     https_server_t server {config::nvhttp.cert, config::nvhttp.pkey};
 
-    // Helper to create page handler lambdas without repeating the signature
-    auto page_handler = [](const char *file, bool require_auth = true, bool redirect_if_username = false) {
-      return [file, require_auth, redirect_if_username](const resp_https_t &response, const req_https_t &request) {
-        getPage(response, request, file, require_auth, redirect_if_username);
+    // Helper to create SPA entry handlers without repeating the signature
+    auto page_handler = [](bool require_auth = true, bool redirect_if_username = false) {
+      return [require_auth, redirect_if_username](const resp_https_t &response, const req_https_t &request) {
+        getPage(response, request, require_auth, redirect_if_username);
       };
     };
 
@@ -1756,28 +1944,17 @@ namespace confighttp {
     const https_handler_t bad_request_handler = [](const resp_https_t &response, const req_https_t &request) {
       bad_request(response, request);
     };
-    const https_handler_t not_found_handler = [](const resp_https_t &response, const req_https_t &request) {
-      not_found(response, request);
-    };
-
     // error by default
     server.default_resource["DELETE"] = bad_request_handler;
     server.default_resource["PATCH"] = bad_request_handler;
     server.default_resource["POST"] = bad_request_handler;
     server.default_resource["PUT"] = bad_request_handler;
-    server.default_resource["GET"] = not_found_handler;
+    // Browser routes are handled by the Web UI single-page application
+    server.default_resource["GET"] = getFallbackPage;
 
-    // web pages
-    server.resource["^/$"]["GET"] = page_handler("index.html");
-    server.resource["^/apps/?$"]["GET"] = page_handler("apps.html");
-    server.resource["^/clients/?$"]["GET"] = page_handler("clients.html");
-    server.resource["^/config/?$"]["GET"] = page_handler("config.html");
-    server.resource["^/featured/?$"]["GET"] = page_handler("featured.html");
-    server.resource["^/logout/?$"]["GET"] = page_handler("logout.html", false);
-    server.resource["^/password/?$"]["GET"] = page_handler("password.html");
-    server.resource["^/pin/?$"]["GET"] = page_handler("pin.html");
-    server.resource["^/troubleshooting/?$"]["GET"] = page_handler("troubleshooting.html");
-    server.resource["^/welcome/?$"]["GET"] = page_handler("welcome.html", false, true);
+    // Public SPA routes with authentication behavior that differs from the default fallback
+    server.resource["^/logout/?$"]["GET"] = page_handler(false);
+    server.resource["^/welcome/?$"]["GET"] = page_handler(false, true);
 
     // rest api
     server.resource["^/api/browse$"]["GET"] = browseDirectory;
@@ -1796,6 +1973,8 @@ namespace confighttp {
     server.resource["^/api/covers/upload$"]["POST"] = uploadCover;
     server.resource["^/api/csrf-token$"]["GET"] = getCSRFToken;
     server.resource["^/api/password$"]["POST"] = savePassword;
+    server.resource["^/api/pin$"]["DELETE"] = cancelPairing;
+    server.resource["^/api/pin$"]["GET"] = getPendingPairings;
     server.resource["^/api/pin$"]["POST"] = savePin;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
@@ -1812,9 +1991,7 @@ namespace confighttp {
     server.config.address = net::get_bind_address(address_family);
     server.config.port = port_https;
 
-    // Store bind address for logging, use "localhost" as fallback for wildcard addresses
-    const auto bind_addr = server.config.address;
-    const auto display_addr = config::sunshine.bind_address.empty() ? "localhost"sv : std::string_view {bind_addr};
+    const auto display_addr = net::get_bind_address_url_host();
 
     auto accept_and_run = [&](auto *server) {
       try {

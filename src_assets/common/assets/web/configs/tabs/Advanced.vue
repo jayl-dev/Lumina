@@ -1,12 +1,13 @@
 <script setup>
 import { ref } from 'vue'
 import PlatformLayout from '../../PlatformLayout.vue'
+import Checkbox from '../../Checkbox.vue'
 
-const props = defineProps([
-  'platform',
-  'config',
-  'global_prep_cmd'
-])
+const props = defineProps({
+  platform: String,
+  config: Object,
+  global_prep_cmd: Array,
+})
 
 const config = ref(props.config)
 </script>
@@ -16,7 +17,7 @@ const config = ref(props.config)
     <!-- FEC Percentage -->
     <div class="mb-3">
       <label for="fec_percentage" class="form-label">{{ $t('config.fec_percentage') }}</label>
-      <input type="text" class="form-control" id="fec_percentage" placeholder="20" v-model="config.fec_percentage" />
+      <input type="number" class="form-control" id="fec_percentage" placeholder="20" min="0" max="100" v-model="config.fec_percentage" />
       <div class="form-text">{{ $t('config.fec_percentage_desc') }}</div>
     </div>
 
@@ -74,6 +75,7 @@ const config = ref(props.config)
             <option value="wlr">wlroots</option>
             <option value="kms">KMS</option>
             <option value="x11">X11</option>
+            <option value="kwin">KWin Screencast</option>
             <option value="portal">XDG Portal</option>
           </template>
           <template #windows>
@@ -84,6 +86,15 @@ const config = ref(props.config)
       </select>
       <div class="form-text">{{ $t('config.capture_desc') }}</div>
     </div>
+
+    <!-- FP16 SDR Gamma Encoded -->
+    <Checkbox v-if="platform === 'windows'"
+              class="mb-3"
+              id="fp16_sdr_gamma_encoded"
+              locale-prefix="config"
+              v-model="config.fp16_sdr_gamma_encoded"
+              default="false"
+    ></Checkbox>
 
     <!-- Encoder -->
     <div class="mb-3">
@@ -97,11 +108,13 @@ const config = ref(props.config)
             <option value="amdvce">AMD AMF/VCE</option>
           </template>
           <template #freebsd>
+            <option value="vulkan">Vulkan</option>
             <option value="vaapi">VA-API</option>
           </template>
           <template #linux>
             <option value="nvenc">NVIDIA NVENC</option>
             <option value="vaapi">VA-API</option>
+            <option value="vulkan">Vulkan</option>
           </template>
           <template #macos>
             <option value="videotoolbox">VideoToolbox</option>
@@ -114,7 +127,3 @@ const config = ref(props.config)
 
   </div>
 </template>
-
-<style scoped>
-
-</style>

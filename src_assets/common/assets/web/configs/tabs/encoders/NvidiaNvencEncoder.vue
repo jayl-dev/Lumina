@@ -2,10 +2,10 @@
 import { ref } from 'vue'
 import Checkbox from "../../../Checkbox.vue";
 
-const props = defineProps([
-  'platform',
-  'config',
-])
+const props = defineProps({
+  platform: String,
+  config: Object,
+})
 
 const config = ref(props.config)
 </script>
@@ -25,6 +25,17 @@ const config = ref(props.config)
         <option value="7">P7 {{ $t('config.nvenc_preset_7') }}</option>
       </select>
       <div class="form-text">{{ $t('config.nvenc_preset_desc') }}</div>
+    </div>
+
+    <!-- Split frame encoding -->
+    <div class="mb-3" v-if="platform === 'windows'">
+      <label for="nvenc_split_encode" class="form-label">{{ $t('config.nvenc_split_encode') }}</label>
+      <select id="nvenc_split_encode" class="form-select" v-model="config.nvenc_split_encode">
+        <option value="disabled">{{ $t('_common.disabled') }}</option>
+        <option value="driver_decides">{{ $t('config.nvenc_split_encode_driver_decides_def') }}</option>
+        <option value="enabled">{{ $t('_common.enabled') }}</option>
+      </select>
+      <div class="form-text">{{ $t('config.nvenc_split_encode_desc') }}</div>
     </div>
 
     <!-- Two-pass mode -->
@@ -114,7 +125,3 @@ const config = ref(props.config)
     </div>
   </div>
 </template>
-
-<style scoped>
-
-</style>

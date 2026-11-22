@@ -9,11 +9,6 @@
 #include <map>
 #include <thread>
 
-#ifdef __APPLE__
-  // platform includes
-  #include <dlfcn.h>
-  #include <VideoToolbox/VideoToolbox.h>
-#endif
 
 // lib includes
 #include <boost/pointer_cast.hpp>
@@ -45,164 +40,6 @@ extern "C" {
 
 using namespace std::literals;
 
-#ifdef __APPLE__
-namespace {
-  using vt_session_create_fn = OSStatus (*)(
-    CFAllocatorRef,
-    int32_t,
-    int32_t,
-    CMVideoCodecType,
-    CFDictionaryRef,
-    CFDictionaryRef,
-    CFAllocatorRef,
-    VTCompressionOutputCallback,
-    void *,
-    VTCompressionSessionRef *
-  );
-
-  void set_videotoolbox_max_frame_delay(VTCompressionSessionRef session) {
-    const int max_frame_delay = config::video.vt.vt_max_frame_delay;
-    if (max_frame_delay < 0) {
-      return;
-    }
-
-    CFDictionaryRef supported_properties = nullptr;
-    OSStatus status = VTSessionCopySupportedPropertyDictionary(session, &supported_properties);
-    if (status != noErr || !supported_properties) {
-      BOOST_LOG(warning)
-        << "Cannot query VideoToolbox properties while applying MaxFrameDelayCount="sv
-        << max_frame_delay << ": OSStatus "sv << status << "; using the encoder default"sv;
-      return;
-    }
-
-    const auto property_description = static_cast<CFDictionaryRef>(CFDictionaryGetValue(
-      supported_properties,
-      kVTCompressionPropertyKey_MaxFrameDelayCount
-    ));
-    if (!property_description || CFGetTypeID(property_description) != CFDictionaryGetTypeID()) {
-      CFRelease(supported_properties);
-      BOOST_LOG(warning)
-        << "VideoToolbox MaxFrameDelayCount="sv << max_frame_delay
-        << " is unsupported by the selected encoder; using the encoder default"sv;
-      return;
-    }
-
-    const auto read_write_status = CFDictionaryGetValue(
-      property_description,
-      kVTPropertyReadWriteStatusKey
-    );
-    const bool read_only = read_write_status && CFEqual(
-      read_write_status,
-      kVTPropertyReadWriteStatus_ReadOnly
-    );
-    CFRelease(supported_properties);
-
-    if (read_only) {
-      BOOST_LOG(warning)
-        << "VideoToolbox MaxFrameDelayCount="sv << max_frame_delay
-        << " cannot be applied because the selected encoder exposes it as read-only; using the encoder default"sv;
-      return;
-    }
-
-    CFNumberRef requested_value = CFNumberCreate(
-      kCFAllocatorDefault,
-      kCFNumberIntType,
-      &max_frame_delay
-    );
-    if (!requested_value) {
-      BOOST_LOG(warning)
-        << "Cannot allocate VideoToolbox MaxFrameDelayCount property value; using the encoder default"sv;
-      return;
-    }
-
-    status = VTSessionSetProperty(
-      session,
-      kVTCompressionPropertyKey_MaxFrameDelayCount,
-      requested_value
-    );
-    CFRelease(requested_value);
-    if (status != noErr) {
-      BOOST_LOG(warning)
-        << "VideoToolbox rejected MaxFrameDelayCount="sv << max_frame_delay
-        << " with OSStatus "sv << status << "; using the encoder default"sv;
-      return;
-    }
-
-    CFTypeRef applied_value = nullptr;
-    status = VTSessionCopyProperty(
-      session,
-      kVTCompressionPropertyKey_MaxFrameDelayCount,
-      kCFAllocatorDefault,
-      &applied_value
-    );
-    if (status != noErr || !applied_value || CFGetTypeID(applied_value) != CFNumberGetTypeID()) {
-      if (applied_value) {
-        CFRelease(applied_value);
-      }
-      BOOST_LOG(warning)
-        << "Cannot verify VideoToolbox MaxFrameDelayCount="sv << max_frame_delay
-        << ": OSStatus "sv << status;
-      return;
-    }
-
-    int actual_value = -1;
-    const bool converted = CFNumberGetValue(
-      static_cast<CFNumberRef>(applied_value),
-      kCFNumberIntType,
-      &actual_value
-    );
-    CFRelease(applied_value);
-
-    if (!converted || actual_value != max_frame_delay) {
-      BOOST_LOG(warning)
-        << "VideoToolbox MaxFrameDelayCount verification mismatch: requested "sv
-        << max_frame_delay << ", actual "sv << actual_value;
-      return;
-    }
-
-    BOOST_LOG(info) << "Applied VideoToolbox MaxFrameDelayCount="sv << actual_value << " from Lumina"sv;
-  }
-}  // namespace
-
-extern "C" OSStatus VTCompressionSessionCreate(
-  CFAllocatorRef allocator,
-  int32_t width,
-  int32_t height,
-  CMVideoCodecType codec_type,
-  CFDictionaryRef encoder_specification,
-  CFDictionaryRef source_image_buffer_attributes,
-  CFAllocatorRef compressed_data_allocator,
-  VTCompressionOutputCallback output_callback,
-  void *output_callback_refcon,
-  VTCompressionSessionRef *compression_session_out
-) {
-  static const auto original_create = reinterpret_cast<vt_session_create_fn>(
-    dlsym(RTLD_NEXT, "VTCompressionSessionCreate")
-  );
-  if (!original_create) {
-    BOOST_LOG(error) << "Failed to resolve the system VTCompressionSessionCreate function"sv;
-    return kVTInvalidSessionErr;
-  }
-
-  const OSStatus status = original_create(
-    allocator,
-    width,
-    height,
-    codec_type,
-    encoder_specification,
-    source_image_buffer_attributes,
-    compressed_data_allocator,
-    output_callback,
-    output_callback_refcon,
-    compression_session_out
-  );
-  if (status == noErr && compression_session_out && *compression_session_out) {
-    set_videotoolbox_max_frame_delay(*compression_session_out);
-  }
-  return status;
-}
-#endif
-
 namespace video {
 
   namespace {
@@ -220,6 +57,7 @@ namespace video {
         return true;
       }
 
+#ifdef _WIN32
       // Since Windows 11 24H2, it is possible that there will be no active devices present
       // for some reason (probably a bug). Trying to probe encoders in such a state locks/breaks the DXGI
       // and also the display device for Windows. So we must have at least 1 active device.
@@ -234,6 +72,11 @@ namespace video {
 
       BOOST_LOG(error) << "No display devices are active at the moment! Cannot probe the encoders.";
       return false;
+#else
+      // A sleeping display enumerates as inactive on other platforms, and the wake-up call
+      // lives in platf::display(), which probing must reach for the display to ever wake.
+      return true;
+#endif
     }
   }  // namespace
 
@@ -284,10 +127,35 @@ namespace video {
 
   }  // namespace qsv
 
+  /**
+   * @brief Resolve a client-requested dynamic range against probed encoder capabilities.
+   *
+   * @param encoder Selected encoder and its probed codec capabilities.
+   * @param config Client-requested stream configuration.
+   * @return Effective stream configuration, downgraded to SDR when HDR is unsupported.
+   */
+  config_t resolve_dynamic_range(const encoder_t &encoder, config_t config) {
+    if (!config.dynamicRange) {
+      return config;
+    }
+
+    const auto &video_format = encoder.codec_from_config(config);
+    // Lumina probes HDR and YUV 4:4:4 separately, so HDR 4:4:4 requires both.
+    const bool supported = video_format[encoder_t::DYNAMIC_RANGE] &&
+                           (config.chromaSamplingType != 1 || video_format[encoder_t::YUV444]);
+    if (supported) {
+      return config;
+    }
+
+    const auto mode = config.chromaSamplingType == 1 ? "YUV 4:4:4 dynamic range"sv : "dynamic range"sv;
+    BOOST_LOG(warning) << video_format.name << ": "sv << mode << " not supported, falling back to SDR"sv;
+    config.dynamicRange = 0;
+    return config;
+  }
+
   util::Either<avcodec_buffer_t, int> dxgi_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
   util::Either<avcodec_buffer_t, int> vaapi_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
   util::Either<avcodec_buffer_t, int> cuda_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
-  util::Either<avcodec_buffer_t, int> vt_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *);
 
   class avcodec_software_encode_device_t: public platf::avcodec_encode_device_t {
   public:
@@ -477,9 +345,6 @@ namespace video {
         avcodec_ctx {std::move(avcodec_ctx)},
         device {std::move(encode_device)},
         inject {inject} {
-      if (this->avcodec_ctx && this->avcodec_ctx->codec && this->avcodec_ctx->codec->name) {
-        coalesce_idr_requests = std::string_view {this->avcodec_ctx->codec->name}.find("_videotoolbox") != std::string_view::npos;
-      }
     }
 
     avcodec_encode_session_t(avcodec_encode_session_t &&other) noexcept = default;
@@ -509,8 +374,6 @@ namespace video {
       vps = std::move(other.vps);
 
       inject = other.inject;
-      coalesce_idr_requests = other.coalesce_idr_requests;
-      idr_in_flight = other.idr_in_flight;
 
       return *this;
     }
@@ -523,16 +386,10 @@ namespace video {
     }
 
     void request_idr_frame() override {
-      if (coalesce_idr_requests && idr_in_flight) {
-        BOOST_LOG(debug) << "Coalescing IDR request while VideoToolbox keyframe is pending"sv;
-        return;
-      }
-
       if (device && device->frame) {
         auto &frame = device->frame;
         frame->pict_type = AV_PICTURE_TYPE_I;
         frame->flags |= AV_FRAME_FLAG_KEY;
-        idr_in_flight = coalesce_idr_requests;
       }
     }
 
@@ -563,12 +420,6 @@ namespace video {
     std::map<int64_t, perf_timing_t> pending_perf_timings;
     // LUMINA_STREAM_PERF_DIAGNOSTICS_END
 #endif
-
-    // VideoToolbox returns encoded packets asynchronously. Avoid submitting
-    // several expensive keyframes while the first requested IDR is still in
-    // flight through the encoder.
-    bool coalesce_idr_requests {false};
-    bool idr_in_flight {false};
 
     std::vector<packet_raw_t::replace_t> replacements;
 
@@ -623,6 +474,126 @@ namespace video {
   private:
     std::unique_ptr<platf::nvenc_encode_device_t> device;
     bool force_idr = false;
+  };
+
+  class vt_encode_session_t: public encode_session_t {
+  public:
+    vt_encode_session_t(std::unique_ptr<platf::vt_encode_device_t> encode_device):
+        device(std::move(encode_device)) {
+    }
+
+    ~vt_encode_session_t() {
+      // Tear down VideoToolbox first: it guarantees no output callbacks once the device is gone
+      device.reset();
+    }
+
+    bool init(const config_t &client_config) {
+      return device->init_encoder(client_config, device->colorspace, [this](platf::vt_encoded_frame &&frame) {
+        on_encoded(std::move(frame));
+      });
+    }
+
+    int convert(platf::img_t &img) override {
+      if (!device) {
+        return -1;
+      }
+      return device->convert(img);
+    }
+
+    void request_idr_frame() override {
+      // Up to two frames are in flight, so the client may ask again before the requested
+      // keyframe arrives; another expensive keyframe right behind it wouldn't help.
+      if (idr_in_flight) {
+        BOOST_LOG(debug) << "Coalescing IDR request while VideoToolbox keyframe is pending"sv;
+        return;
+      }
+      force_idr = true;
+    }
+
+    void request_normal_frame() override {
+      force_idr = false;
+    }
+
+    // VideoToolbox has no reference frame invalidation; recover with an IDR frame instead
+    void invalidate_ref_frames(int64_t first_frame, int64_t last_frame) override {
+      request_idr_frame();
+    }
+
+    int encode_frame(int64_t frame_nr, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                     , perf_timing_t perf_timing
+#endif
+    ) {
+      if (!device) {
+        return -1;
+      }
+
+      {
+        std::lock_guard lg {pending_mutex};
+        pending[frame_nr] = {packets, channel_data, frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                             , perf_timing
+#endif
+        };
+      }
+
+      if (force_idr) {
+        idr_in_flight = true;
+      }
+      if (!device->encode_frame(frame_nr, force_idr)) {
+        BOOST_LOG(error) << "VideoToolbox could not encode frame "sv << frame_nr;
+        return -1;
+      }
+      force_idr = false;
+      return 0;
+    }
+
+  private:
+    struct pending_t {
+      safe::mail_raw_t::queue_t<packet_t> packets;
+      void *channel_data;
+      std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+      perf_timing_t perf_timing;
+#endif
+    };
+
+    // Called on a VideoToolbox output thread, in frame order
+    void on_encoded(platf::vt_encoded_frame &&frame) {
+      pending_t info;
+      {
+        std::lock_guard lg {pending_mutex};
+        auto it = pending.find(frame.frame_index);
+        if (it == pending.end()) {
+          BOOST_LOG(error) << "VideoToolbox returned unknown frame "sv << frame.frame_index;
+          return;
+        }
+        info = std::move(it->second);
+        pending.erase(pending.begin(), std::next(it));
+      }
+
+      if (frame.idr) {
+        idr_in_flight = false;
+      }
+
+      auto packet = std::make_unique<packet_raw_generic>(std::move(frame.data), frame.frame_index, frame.idr);
+      packet->channel_data = info.channel_data;
+      packet->frame_timestamp = info.frame_timestamp;
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+      if (info.perf_timing.active) {
+        info.perf_timing.encode_ready = std::chrono::steady_clock::now();
+      }
+      packet->perf_timing = info.perf_timing;
+#endif
+      info.packets->raise(std::move(packet));
+    }
+
+    std::unique_ptr<platf::vt_encode_device_t> device;
+    bool force_idr = false;
+    std::atomic<bool> idr_in_flight {false};
+
+    std::mutex pending_mutex;
+    std::map<int64_t, pending_t> pending;
   };
 
   struct sync_session_ctx_t {
@@ -1214,69 +1185,42 @@ namespace video {
 #endif
 
 #ifdef __APPLE__
+  // VideoToolbox, driven directly through VTCompressionSession
   encoder_t videotoolbox {
     "videotoolbox"sv,
-    std::make_unique<encoder_platform_formats_avcodec>(
-      AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
-      AV_HWDEVICE_TYPE_NONE,
-      AV_PIX_FMT_VIDEOTOOLBOX,
-      AV_PIX_FMT_NV12,
-      AV_PIX_FMT_P010,
-      AV_PIX_FMT_NONE,
-      AV_PIX_FMT_NONE,
-      vt_init_avcodec_hardware_input_buffer
+    std::make_unique<encoder_platform_formats_vt>(
+      platf::mem_type_e::videotoolbox,
+      platf::pix_fmt_e::nv12,
+      platf::pix_fmt_e::p010,
+      platf::pix_fmt_e::unknown,
+      platf::pix_fmt_e::unknown
     ),
     {
-      // Common options
-      {
-        {"allow_sw"s, &config::video.vt.vt_allow_sw},
-        {"require_sw"s, &config::video.vt.vt_require_sw},
-        {"realtime"s, &config::video.vt.vt_realtime},
-        {"prio_speed"s, 1},
-        {"max_ref_frames"s, 1},
-      },
+      {},  // Common options
       {},  // SDR-specific options
       {},  // HDR-specific options
       {},  // YUV444 SDR-specific options
       {},  // YUV444 HDR-specific options
       {},  // Fallback options
-      "av1_videotoolbox"s,
+      "av1_vt"s,
     },
     {
-      // Common options
-      {
-        {"allow_sw"s, &config::video.vt.vt_allow_sw},
-        {"require_sw"s, &config::video.vt.vt_require_sw},
-        {"realtime"s, &config::video.vt.vt_realtime},
-        {"prio_speed"s, 1},
-        {"max_ref_frames"s, 1},
-      },
+      {},  // Common options
       {},  // SDR-specific options
       {},  // HDR-specific options
       {},  // YUV444 SDR-specific options
       {},  // YUV444 HDR-specific options
       {},  // Fallback options
-      "hevc_videotoolbox"s,
+      "hevc_vt"s,
     },
     {
-      // Common options
-      // Note: max_ref_frames is intentionally omitted for H.264 because
-      // VideoToolbox on Apple Silicon produces all-IDR output when
-      // ReferenceBufferCount=1 is set for H.264, causing massive bandwidth
-      // inflation (~3x) and frame drops. HEVC and AV1 are unaffected and
-      // retain max_ref_frames=1. See LizardByte/Sunshine#5013.
-      {
-        {"allow_sw"s, &config::video.vt.vt_allow_sw},
-        {"require_sw"s, &config::video.vt.vt_require_sw},
-        {"realtime"s, &config::video.vt.vt_realtime},
-        {"prio_speed"s, 1},
-      },
+      {},  // Common options
       {},  // SDR-specific options
       {},  // HDR-specific options
       {},  // YUV444 SDR-specific options
       {},  // YUV444 HDR-specific options
       {},  // Fallback options
-      "h264_videotoolbox"s,
+      "h264_vt"s,
     },
     PARALLEL_ENCODING
   };
@@ -1690,7 +1634,6 @@ namespace video {
 
       if (av_packet->flags & AV_PKT_FLAG_KEY) {
         BOOST_LOG(debug) << "Frame "sv << av_packet->pts << ": IDR Keyframe (AV_FRAME_FLAG_KEY)"sv;
-        session.idr_in_flight = false;
       }
 
       // Async encoders often return an older packet immediately after an IDR
@@ -1795,6 +1738,26 @@ namespace video {
     return 0;
   }
 
+  // Packets are raised from the VideoToolbox output thread as frames complete
+  int encode_vt(int64_t frame_nr, vt_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+               , perf_timing_t perf_timing
+#endif
+  ) {
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+    // LUMINA_STREAM_PERF_DIAGNOSTICS_BEGIN
+    if (perf_timing.active) {
+      perf_timing.encode_submit = std::chrono::steady_clock::now();
+    }
+    // LUMINA_STREAM_PERF_DIAGNOSTICS_END
+#endif
+    return session.encode_frame(frame_nr, packets, channel_data, frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                                , perf_timing
+#endif
+    );
+  }
+
   int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp
 #ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
              , perf_timing_t perf_timing = {}
@@ -1810,6 +1773,12 @@ namespace video {
       return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp
 #ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
                           , perf_timing
+#endif
+      );
+    } else if (auto vt_session = dynamic_cast<vt_encode_session_t *>(&session)) {
+      return encode_vt(frame_nr, *vt_session, packets, channel_data, frame_timestamp
+#ifdef LUMINA_ENABLE_STREAM_PERF_LOGGING
+                       , perf_timing
 #endif
       );
     }
@@ -2209,6 +2178,15 @@ namespace video {
     return std::make_unique<nvenc_encode_session_t>(std::move(encode_device));
   }
 
+  std::unique_ptr<vt_encode_session_t> make_vt_encode_session(const config_t &client_config, std::unique_ptr<platf::vt_encode_device_t> encode_device) {
+    auto session = std::make_unique<vt_encode_session_t>(std::move(encode_device));
+    if (!session->init(client_config)) {
+      return nullptr;
+    }
+
+    return session;
+  }
+
   std::unique_ptr<encode_session_t> make_encode_session(platf::display_t *disp, const encoder_t &encoder, const config_t &config, int width, int height, std::unique_ptr<platf::encode_device_t> encode_device) {
     if (dynamic_cast<platf::avcodec_encode_device_t *>(encode_device.get())) {
       auto avcodec_encode_device = boost::dynamic_pointer_cast<platf::avcodec_encode_device_t>(std::move(encode_device));
@@ -2216,6 +2194,9 @@ namespace video {
     } else if (dynamic_cast<platf::nvenc_encode_device_t *>(encode_device.get())) {
       auto nvenc_encode_device = boost::dynamic_pointer_cast<platf::nvenc_encode_device_t>(std::move(encode_device));
       return make_nvenc_encode_session(config, std::move(nvenc_encode_device));
+    } else if (dynamic_cast<platf::vt_encode_device_t *>(encode_device.get())) {
+      auto vt_encode_device = boost::dynamic_pointer_cast<platf::vt_encode_device_t>(std::move(encode_device));
+      return make_vt_encode_session(config, std::move(vt_encode_device));
     }
 
     return nullptr;
@@ -2444,6 +2425,8 @@ namespace video {
       result = disp.make_avcodec_encode_device(pix_fmt);
     } else if (dynamic_cast<const encoder_platform_formats_nvenc *>(encoder.platform_formats.get())) {
       result = disp.make_nvenc_encode_device(pix_fmt);
+    } else if (dynamic_cast<const encoder_platform_formats_vt *>(encoder.platform_formats.get())) {
+      result = disp.make_vt_encode_device(pix_fmt);
     }
 
     if (result) {
@@ -2785,6 +2768,8 @@ namespace video {
     config_t config,
     void *channel_data
   ) {
+    config = resolve_dynamic_range(*chosen_encoder, config);
+
     auto idr_events = mail->event<bool>(mail::idr);
 
     idr_events->raise(true);
@@ -2836,13 +2821,26 @@ namespace video {
     session->request_idr_frame();
 
     auto packets = mail::man->queue<packet_t>(mail::video_packets);
-    while (!packets->peek()) {
+    packet_t packet;
+    if (dynamic_cast<vt_encode_session_t *>(session.get())) {
+      // VideoToolbox delivers packets asynchronously; submit a single frame so no stray probe
+      // packets reach the stream after this session is gone
       if (encode(1, *session, packets, nullptr, {})) {
         return -1;
       }
+      packet = packets->pop(1s);
+      if (!packet) {
+        BOOST_LOG(error) << "VideoToolbox produced no packet for the probe frame"sv;
+        return -1;
+      }
+    } else {
+      while (!packets->peek()) {
+        if (encode(1, *session, packets, nullptr, {})) {
+          return -1;
+        }
+      }
+      packet = packets->pop();
     }
-
-    auto packet = packets->pop();
     if (!packet->is_idr()) {
       BOOST_LOG(error) << "First packet type is not an IDR frame"sv;
 
@@ -3277,19 +3275,6 @@ namespace video {
     return hw_device_buf;
   }
 
-  util::Either<avcodec_buffer_t, int> vt_init_avcodec_hardware_input_buffer(platf::avcodec_encode_device_t *encode_device) {
-    avcodec_buffer_t hw_device_buf;
-
-    auto status = av_hwdevice_ctx_create(&hw_device_buf, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
-    if (status < 0) {
-      char string[AV_ERROR_MAX_STRING_SIZE];
-      BOOST_LOG(error) << "Failed to create a VideoToolbox device: "sv << av_make_error_string(string, AV_ERROR_MAX_STRING_SIZE, status);
-      return -1;
-    }
-
-    return hw_device_buf;
-  }
-
 #ifdef _WIN32
 }
 
@@ -3365,8 +3350,6 @@ namespace video {
         return platf::mem_type_e::cuda;
       case AV_HWDEVICE_TYPE_NONE:
         return platf::mem_type_e::system;
-      case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
-        return platf::mem_type_e::videotoolbox;
       default:
         return platf::mem_type_e::unknown;
     }

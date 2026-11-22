@@ -2,9 +2,9 @@
   <div>
     <nav class="navbar navbar-expand-lg navbar-sunshine">
       <div class="container-fluid">
-        <a class="navbar-brand" href="./" title="Lumina">
+        <RouterLink class="navbar-brand" to="/" title="Lumina">
           <img src="/images/logo-sunshine-45.png" height="45" alt="Lumina">
-        </a>
+        </RouterLink>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent"
                 aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
@@ -12,40 +12,40 @@
         <div class="collapse navbar-collapse" id="navbarSupportedContent">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             <li class="nav-item">
-              <a class="nav-link" href="./">
+              <RouterLink class="nav-link" to="/">
                 <Home :size="18" class="icon"></Home>
                 {{ $t('navbar.home') }}
-              </a>
+              </RouterLink>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="./pin">
+              <RouterLink class="nav-link" to="/pin">
                 <Lock :size="18" class="icon"></Lock>
                 {{ $t('navbar.pin') }}
-              </a>
+              </RouterLink>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="./apps">
+              <RouterLink class="nav-link" to="/apps">
                 <Layers :size="18" class="icon"></Layers>
                 {{ $t('navbar.applications') }}
-              </a>
+              </RouterLink>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="./featured">
+              <RouterLink class="nav-link" to="/featured">
                 <Star :size="18" class="icon"></Star>
                 {{ $t('navbar.featured') }}
-              </a>
+              </RouterLink>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="./config">
+              <RouterLink class="nav-link" to="/config">
                 <Settings :size="18" class="icon"></Settings>
                 {{ $t('navbar.configuration') }}
-              </a>
+              </RouterLink>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="./troubleshooting">
+              <RouterLink class="nav-link" to="/troubleshooting">
                 <Info :size="18" class="icon"></Info>
                 {{ $t('navbar.troubleshoot') }}
-              </a>
+              </RouterLink>
             </li>
           </ul>
           <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
@@ -59,10 +59,10 @@
               </button>
               <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarUserMenu">
                 <li>
-                  <a class="dropdown-item d-flex align-items-center" href="./password">
+                  <RouterLink class="dropdown-item d-flex align-items-center" to="/password">
                     <Shield :size="18" class="icon"></Shield>
                     {{ $t('navbar.password') }}
-                  </a>
+                  </RouterLink>
                 </li>
                 <li><hr class="dropdown-divider"></li>
                 <li>
@@ -100,27 +100,6 @@ export default {
     CircleUserRound,
     LogOut
   },
-  created() {
-    console.log("Header mounted!")
-  },
-  mounted() {
-    const currentPath = globalThis.location.pathname.replace(/\/$/, '') || '/'
-    const links = document.querySelectorAll('.navbar-sunshine a[href]')
-
-    for (const link of links) {
-      const href = link.getAttribute('href')
-      if (!href || href === '#') {
-        continue
-      }
-
-      const linkPath = new URL(href, globalThis.location.href).pathname.replace(/\/$/, '') || '/'
-      if (linkPath !== currentPath) {
-        continue
-      }
-
-      link.classList.add('active')
-    }
-  },
   methods: {
     logout() {
       const cacheBuster = Date.now().toString()
@@ -143,8 +122,8 @@ export default {
 </script>
 
 <style>
-/* Navbar toggler icon for dark text on light background */
-.navbar-sunshine .navbar-toggler-icon {
-  --bs-navbar-toggler-icon-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.9%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+/** @brief Keep the Sunshine toggler icon above Bootstrap's light and dark variants. */
+.navbar-sunshine .navbar-toggler .navbar-toggler-icon {
+  --bs-navbar-toggler-icon-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.9%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
 }
 </style>

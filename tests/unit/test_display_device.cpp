@@ -201,7 +201,7 @@ TEST_P(ParseResolutionOption, IntegrationTest) {
 
   const auto result {display_device::parse_configuration(video_config, session)};
   if (const auto *failed_option {std::get_if<failed_to_parse_resolution_tag_t>(&expected_value)}; failed_option) {
-    EXPECT_NO_THROW(std::get<display_device::failed_to_parse_tag_t>(result));
+    EXPECT_NO_THROW(static_cast<void>(std::get<display_device::failed_to_parse_tag_t>(result)));
   } else {
     std::optional<resolution_t> expected_resolution;
     if (const auto *valid_resolution_option {std::get_if<resolution_t>(&expected_value)}; valid_resolution_option) {
@@ -281,7 +281,7 @@ TEST_P(ParseRefreshRateOption, IntegrationTest) {
 
   const auto result {display_device::parse_configuration(video_config, session)};
   if (const auto *failed_option {std::get_if<failed_to_parse_refresh_rate_tag_t>(&expected_value)}; failed_option) {
-    EXPECT_NO_THROW(std::get<display_device::failed_to_parse_tag_t>(result));
+    EXPECT_NO_THROW(static_cast<void>(std::get<display_device::failed_to_parse_tag_t>(result)));
   } else {
     std::optional<display_device::FloatingPoint> expected_refresh_rate;
     if (const auto *valid_refresh_rate_option {std::get_if<rational_t>(&expected_value)}; valid_refresh_rate_option) {
@@ -504,7 +504,7 @@ namespace {
 
     const auto result {display_device::parse_configuration(video_config, session)};
     if (const auto *failed_option {std::get_if<failed_to_remap_t>(&expected_value)}; failed_option) {
-      EXPECT_NO_THROW(std::get<display_device::failed_to_parse_tag_t>(result));
+      EXPECT_NO_THROW(static_cast<void>(std::get<display_device::failed_to_parse_tag_t>(result)));
     } else {
       const auto &[expected_resolution, expected_refresh_rate] = std::get<final_values_t>(expected_value);
       const auto &parsed_config = std::get<display_device::SingleDisplayConfiguration>(result);

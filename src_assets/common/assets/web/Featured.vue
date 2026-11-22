@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="en" data-bs-theme="auto">
-
-<head>
-      <%- header %>
-</head>
-
-<body id="app" v-cloak>
+<template>
   <Navbar></Navbar>
   <div id="content" class="container">
     <div class="my-4">
@@ -15,31 +8,35 @@
 
     <!-- Category Filter -->
     <div class="toolbar mb-4">
-      <div class="btn-group" role="group" aria-label="Category filter">
-        <button
-          type="button"
-          class="btn btn-outline-primary"
-          :class="{ active: selectedCategory === null }"
-          @click="selectedCategory = null">
-          {{ $t('_common.all') }}
-        </button>
-        <button
-          v-for="category in categories"
-          :key="category.id"
-          type="button"
-          class="btn btn-outline-primary"
-          :class="{ active: selectedCategory === category.id }"
-          @click="selectedCategory = category.id">
-          {{ $t(`featured.categories.${category.originalId}`) }}
-        </button>
-      </div>
+      <fieldset>
+        <legend class="visually-hidden">{{ $t('featured.category_filter') }}</legend>
+        <!-- @brief Keep the legend outside Bootstrap's button group to preserve its outer corners. -->
+        <div class="btn-group">
+          <button
+            type="button"
+            class="btn btn-outline-primary"
+            :class="{ active: selectedCategory === null }"
+            @click="selectedCategory = null">
+            {{ $t('_common.all') }}
+          </button>
+          <button
+            v-for="category in categories"
+            :key="category.id"
+            type="button"
+            class="btn btn-outline-primary"
+            :class="{ active: selectedCategory === category.id }"
+            @click="selectedCategory = category.id">
+            {{ $t(`featured.categories.${category.originalId}`) }}
+          </button>
+        </div>
+      </fieldset>
     </div>
 
     <!-- Loading State -->
     <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border" role="status">
+      <output class="spinner-border">
         <span class="visually-hidden">{{ $t('_common.loading') }}</span>
-      </div>
+      </output>
     </div>
 
     <!-- Error State -->
@@ -73,7 +70,7 @@
                 <h5 class="card-title mb-1">{{ app.name }}</h5>
                 <p class="text-muted small mb-0" v-if="app.tagline">{{ app.tagline }}</p>
               </div>
-              <span v-if="app.official" class="badge bg-primary flex-shrink-0 ms-2">{{ $t('featured.official') }}</span>
+              <span v-if="app.official" class="badge badge-primary flex-shrink-0 ms-2">{{ $t('featured.official') }}</span>
             </div>
 
             <p class="card-text text-muted small mb-3">{{ app.description }}</p>
@@ -104,21 +101,26 @@
             <!-- Screenshots Section -->
             <div v-if="app.screenshots && app.screenshots.length > 0" class="screenshots-container mb-3">
               <div class="screenshots-scroll">
-                <img
+                <button
                   v-for="(screenshot, index) in app.screenshots"
                   :key="index"
-                  :src="screenshot"
-                  :alt="app.name + ' screenshot ' + (index + 1)"
-                  class="screenshot-thumbnail"
+                  type="button"
+                  class="screenshot-thumbnail-button"
                   @click="openScreenshot(screenshot, app.screenshots)"
-                  @error="handleScreenshotError"
-                />
+                >
+                  <img
+                    :src="screenshot"
+                    :alt="app.name + ' screenshot ' + (index + 1)"
+                    class="screenshot-thumbnail"
+                    @error="handleScreenshotError"
+                  />
+                </button>
               </div>
             </div>
 
             <!-- Platform Icons -->
             <div class="mb-3">
-              <span class="badge bg-secondary me-1" v-for="platform in app.platforms" :key="platform">
+              <span class="badge badge-secondary me-1" v-for="platform in app.platforms" :key="platform">
                 <smartphone v-if="platform === 'android'" :size="14" class="icon"></smartphone>
                 <gamepad2 v-else-if="platform === 'console'" :size="14" class="icon"></gamepad2>
                 <gamepad v-else-if="platform === 'handheld'" :size="14" class="icon"></gamepad>
@@ -210,7 +212,8 @@
     <div
       v-if="selectedScreenshot"
       class="screenshot-modal"
-      @click="closeScreenshot"
+      @click.self="closeScreenshot"
+      @keydown.esc.stop="closeScreenshot"
       @touchstart="handleTouchStart"
       @touchend="handleTouchEnd">
       <div class="screenshot-modal-content">
@@ -245,15 +248,13 @@
           {{ selectedScreenshotIndex + 1 }} / {{ currentAppScreenshots.length }}
         </div>
 
-        <img :src="selectedScreenshot" alt="Screenshot" @click.stop />
+        <img :src="selectedScreenshot" alt="Screenshot" />
       </div>
     </div>
   </div>
-</body>
+</template>
 
-<script type="module">
-  import { createApp } from 'vue'
-  import { initApp } from './init'
+<script>
   import Navbar from './Navbar.vue'
   import SimpleIcon from './SimpleIcon.vue'
   import { formatDistanceToNow, format } from 'date-fns'
@@ -274,7 +275,7 @@
     Tv,
   } from '@lucide/vue'
 
-  const app = createApp({
+  export default {
     components: {
       Navbar,
       SimpleIcon,
@@ -490,9 +491,5 @@
         }
       }
     },
-  });
-
-  initApp(app);
+  }
 </script>
-
-</html>

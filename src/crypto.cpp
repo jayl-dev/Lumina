@@ -12,6 +12,7 @@
 namespace crypto {
   using asn1_string_t = util::safe_ptr<ASN1_STRING, ASN1_STRING_free>;
   using x509_name_t = util::safe_ptr<X509_NAME, &X509_NAME_free>;
+  constexpr char UNPAIRED_CERTIFICATE_ERROR[] = "Client certificate identity is not paired";  ///< Error returned when no exact stored certificate matches.
 
   cert_chain_t::cert_chain_t():
       _certs {},
@@ -45,19 +46,9 @@ namespace crypto {
     }
   }
 
-  /**
-   * @brief Verify the certificate chain.
-   * When certificates from two or more instances of Moonlight have been added to x509_store_t,
-   * only one of them will be verified by X509_verify_cert, resulting in only a single instance of
-   * Moonlight to be able to use Sunshine
-   *
-   * To circumvent this, x509_store_t instance will be created for each instance of the certificates.
-   * @param cert The certificate to verify.
-   * @return nullptr if the certificate is valid, otherwise an error string.
-   */
   const char *cert_chain_t::verify(x509_t::element_type *cert) {
     int err_code = 0;
-    for (auto &[_, x509_store] : _certs) {
+    for (auto &[trusted_cert, x509_store] : _certs) {
       auto fg = util::fail_guard([this]() {
         X509_STORE_CTX_cleanup(_cert_ctx.get());
       });
@@ -73,7 +64,12 @@ namespace crypto {
       auto err = X509_verify_cert(_cert_ctx.get());
 
       if (err == 1) {
-        return nullptr;
+        if (X509_cmp(trusted_cert.get(), cert) == 0) {
+          return nullptr;
+        }
+
+        err_code = X509_V_ERR_CERT_REJECTED;
+        continue;
       }
 
       err_code = X509_STORE_CTX_get_error(_cert_ctx.get());
@@ -83,7 +79,7 @@ namespace crypto {
       }
     }
 
-    return X509_verify_cert_error_string(err_code);
+    return err_code == 0 ? UNPAIRED_CERTIFICATE_ERROR : X509_verify_cert_error_string(err_code);
   }
 
   namespace cipher {
@@ -387,9 +383,15 @@ namespace crypto {
     const ASN1_BIT_STRING *asn1 = nullptr;
     X509_get0_signature(&asn1, nullptr, x.get());
 
+#if OPENSSL_VERSION_NUMBER >= 0x40100000L
+    const auto length = ASN1_STRING_get_length(asn1);
+#else
+    const auto length = static_cast<std::size_t>(ASN1_STRING_length(asn1));
+#endif
+
     return {
       reinterpret_cast<const char *>(ASN1_STRING_get0_data(asn1)),
-      static_cast<std::size_t>(ASN1_STRING_length(asn1))
+      length
     };
   }
 

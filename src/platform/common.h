@@ -454,6 +454,23 @@ namespace platf {
     nvenc::nvenc_base *nvenc = nullptr;
   };
 
+  struct vt_encoded_frame {
+    std::vector<uint8_t> data;  // Annex-B elementary stream for exactly one frame
+    uint64_t frame_index = 0;
+    bool idr = false;
+  };
+
+  // Receives encoded frames in frame order on a VideoToolbox output thread
+  using vt_packet_sink_t = std::function<void(vt_encoded_frame &&)>;
+
+  struct vt_encode_device_t: encode_device_t {
+    virtual bool init_encoder(const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace, vt_packet_sink_t sink) = 0;
+
+    // Submit the frame most recently supplied via convert(); blocks only while the encoder pipeline
+    // is full. Returns false once the encoder has failed.
+    virtual bool encode_frame(uint64_t frame_index, bool force_idr) = 0;
+  };
+
   enum class capture_e : int {
     ok,  ///< Success
     reinit,  ///< Need to reinitialize
@@ -507,6 +524,10 @@ namespace platf {
     }
 
     virtual std::unique_ptr<nvenc_encode_device_t> make_nvenc_encode_device(pix_fmt_e pix_fmt) {
+      return nullptr;
+    }
+
+    virtual std::unique_ptr<vt_encode_device_t> make_vt_encode_device(pix_fmt_e pix_fmt) {
       return nullptr;
     }
 

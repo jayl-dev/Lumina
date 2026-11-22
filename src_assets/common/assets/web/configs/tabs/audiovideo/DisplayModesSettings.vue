@@ -1,12 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import { $tp } from '../../../platform-i18n'
-import PlatformLayout from '../../../PlatformLayout.vue'
-
-const props = defineProps([
-  'platform',
-  'config',
-])
+const props = defineProps({
+  platform: String,
+  config: Object,
+})
 const config = ref(props.config)
 </script>
 
@@ -16,6 +13,13 @@ const config = ref(props.config)
     <label for="max_bitrate" class="form-label">{{ $t("config.max_bitrate") }}</label>
     <input type="number" class="form-control" id="max_bitrate" placeholder="0" v-model="config.max_bitrate" />
     <div class="form-text">{{ $t("config.max_bitrate_desc") }}</div>
+  </div>
+
+  <!--max_stream_resolution-->
+  <div class="mb-3">
+    <label for="max_stream_resolution" class="form-label">{{ $t("config.max_stream_resolution") }}</label>
+    <input type="text" class="form-control" id="max_stream_resolution" placeholder="2560x1440" v-model="config.max_stream_resolution" />
+    <div class="form-text">{{ $t("config.max_stream_resolution_desc") }}</div>
   </div>
 
   <!--minimum_fps_target-->

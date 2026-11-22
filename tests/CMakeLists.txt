@@ -95,6 +95,12 @@ endif()
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_SOURCE_DIR}/tests/*.h
         ${CMAKE_SOURCE_DIR}/tests/*.cpp)
+# Add macOS-specific test files only when building tests for macOS
+if (APPLE)
+    file(GLOB_RECURSE MACOS_TEST_SOURCES CONFIGURE_DEPENDS
+            ${CMAKE_SOURCE_DIR}/tests/*.mm)
+    list(APPEND TEST_SOURCES ${MACOS_TEST_SOURCES})
+endif ()
 
 set(SUNSHINE_SOURCES
         ${SUNSHINE_TARGET_FILES})
@@ -111,8 +117,8 @@ add_executable(${PROJECT_NAME}
 # Using configure_file ensures files are copied when they change between builds
 set(INTEGRATION_TEST_FILES
     "src/config.cpp"
-    "src_assets/common/assets/web/config.html"
     "src_assets/common/assets/web/public/assets/locale/en.json"
+    "src_assets/common/assets/web/configs/config_tabs.json"
     "src_assets/common/assets/web/configs/tabs/General.vue"
 )
 

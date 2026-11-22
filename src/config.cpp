@@ -4,6 +4,8 @@
  */
 // standard includes
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -310,22 +312,6 @@ namespace config {
       return -1;
     }
 
-    int allow_software_from_view(const std::string_view &software) {
-      if (software == "allowed"sv || software == "forced") {
-        return 1;
-      }
-
-      return 0;
-    }
-
-    int force_software_from_view(const std::string_view &software) {
-      if (software == "forced") {
-        return 1;
-      }
-
-      return 0;
-    }
-
     int rt_from_view(const std::string_view &rt) {
       if (rt == "disabled" || rt == "off" || rt == "0") {
         return 0;
@@ -442,6 +428,9 @@ namespace config {
     0,  // av1_mode
 
     2,  // min_threads
+
+    0,  // max_stream_width
+    0,  // max_stream_height
     {
       "superfast"s,  // preset
       "zerolatency"s,  // tune
@@ -477,8 +466,6 @@ namespace config {
     },  // amd
 
     {
-      0,  // allow software encoding
-      0,  // require software encoding
       1,  // realtime encoding
       -1,  // maximum frame delay (automatic)
       -1,  // entropy coder (automatic)
@@ -530,6 +517,7 @@ namespace config {
     ENCRYPTION_MODE_NEVER,  // lan_encryption_mode
     ENCRYPTION_MODE_OPPORTUNISTIC,  // wan_encryption_mode
     0,  // packetsize
+    true,  // dscp_tagging
   };
 
   nvhttp_t nvhttp {
@@ -864,7 +852,7 @@ namespace config {
   }
 
   bool to_bool(std::string &boolean) {
-    std::for_each(std::begin(boolean), std::end(boolean), [](char ch) {
+    std::transform(std::begin(boolean), std::end(boolean), std::begin(boolean), [](unsigned char ch) {
       return (char) std::tolower(ch);
     });
 
@@ -1082,6 +1070,54 @@ namespace config {
     }
   }
 
+  bool cap_stream_resolution(int &width, int &height) {
+    if (video.max_stream_width <= 0 || video.max_stream_height <= 0 || width <= 0 || height <= 0 || (width <= video.max_stream_width && height <= video.max_stream_height)) {
+      return false;
+    }
+
+    // Scale by whichever dimension is further over its limit, in integer math so that dimension
+    // lands exactly on the cap.
+    const std::int64_t w = width;
+    const std::int64_t h = height;
+    const bool width_limited = w * video.max_stream_height >= h * video.max_stream_width;
+    const auto scaled_width = width_limited ? video.max_stream_width : static_cast<int>(w * video.max_stream_height / h);
+    const auto scaled_height = width_limited ? static_cast<int>(h * video.max_stream_width / w) : video.max_stream_height;
+    // Encoders and decoders expect even dimensions
+    const int capped_width = std::max(2, scaled_width & ~1);
+    const int capped_height = std::max(2, scaled_height & ~1);
+    BOOST_LOG(info) << "Capping stream resolution: "sv << width << 'x' << height
+                    << " -> "sv << capped_width << 'x' << capped_height;
+    width = capped_width;
+    height = capped_height;
+    return true;
+  }
+
+  bool parse_stream_resolution(const std::string_view &value, int &width, int &height) {
+    const auto separator = value.find('x');
+    if (separator == std::string::npos) {
+      return false;
+    }
+
+    const auto *const begin = value.data();
+    const auto *const end = begin + value.size();
+
+    int parsed_width = 0;
+    const auto [width_end, width_ec] = std::from_chars(begin, begin + separator, parsed_width);
+    if (width_ec != std::errc {} || width_end != begin + separator || parsed_width < 2) {
+      return false;
+    }
+
+    int parsed_height = 0;
+    const auto [height_end, height_ec] = std::from_chars(begin + separator + 1, end, parsed_height);
+    if (height_ec != std::errc {} || height_end != end || parsed_height < 2) {
+      return false;
+    }
+
+    width = parsed_width;
+    height = parsed_height;
+    return true;
+  }
+
   void apply_config(std::unordered_map<std::string, std::string> &&vars) {
     log_config_settings(vars, true);
 
@@ -1089,6 +1125,13 @@ namespace config {
     int_between_f(vars, "hevc_mode", video.hevc_mode, {0, 3});
     int_between_f(vars, "av1_mode", video.av1_mode, {0, 3});
     int_f(vars, "min_threads", video.min_threads);
+
+    std::string max_stream_resolution;
+    string_f(vars, "max_stream_resolution", max_stream_resolution);
+    if (!max_stream_resolution.empty() && !parse_stream_resolution(max_stream_resolution, video.max_stream_width, video.max_stream_height)) {
+      BOOST_LOG(warning) << "max_stream_resolution must be formatted as <width>x<height>, e.g. 2560x1440: "sv << max_stream_resolution;
+    }
+
     string_f(vars, "sw_preset", video.sw.sw_preset);
     if (!video.sw.sw_preset.empty()) {
       video.sw.svtav1_preset = sw::svtav1_preset_from_view(video.sw.sw_preset);
@@ -1148,8 +1191,6 @@ namespace config {
     bool_f(vars, "amd_enforce_hrd", (bool &) video.amd.amd_enforce_hrd);
 
     int_f(vars, "vt_coder", video.vt.vt_coder, vt::coder_from_view);
-    int_f(vars, "vt_software", video.vt.vt_allow_sw, vt::allow_software_from_view);
-    int_f(vars, "vt_software", video.vt.vt_require_sw, vt::force_software_from_view);
     int_f(vars, "vt_realtime", video.vt.vt_realtime, vt::rt_from_view);
     int_between_f(vars, "vt_max_frame_delay", video.vt.vt_max_frame_delay, {-1, std::numeric_limits<int>::max()});
 
@@ -1240,6 +1281,7 @@ namespace config {
     int_between_f(vars, "lan_encryption_mode", stream.lan_encryption_mode, {0, 2});
     int_between_f(vars, "wan_encryption_mode", stream.wan_encryption_mode, {0, 2});
     int_between_f(vars, "packetsize", stream.packetsize, {0, PACKETSIZE_MAX});
+    bool_f(vars, "dscp_tagging", stream.dscp_tagging);
 
     path_f(vars, "file_apps", stream.file_apps);
 #ifndef __ANDROID__
@@ -1254,7 +1296,7 @@ namespace config {
     }
 #endif
 
-    int_between_f(vars, "fec_percentage", stream.fec_percentage, {1, 255});
+    int_between_f(vars, "fec_percentage", stream.fec_percentage, {0, 100});
 
     map_int_int_f(vars, "keybindings"s, input.keybindings);
 
