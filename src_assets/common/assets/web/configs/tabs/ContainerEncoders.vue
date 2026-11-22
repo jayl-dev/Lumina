@@ -6,12 +6,13 @@ import AmdAmfEncoder from './encoders/AmdAmfEncoder.vue'
 import VideotoolboxEncoder from './encoders/VideotoolboxEncoder.vue'
 import SoftwareEncoder from './encoders/SoftwareEncoder.vue'
 import VAAPIEncoder from './encoders/VAAPIEncoder.vue'
+import VulkanEncoder from './encoders/VulkanEncoder.vue'
 
-const props = defineProps([
-  'platform',
-  'config',
-  'currentTab'
-])
+const props = defineProps({
+  platform: String,
+  config: Object,
+  currentTab: String,
+})
 
 const config = ref(props.config)
 </script>
@@ -53,6 +54,13 @@ const config = ref(props.config)
       :config="config"
   />
 
+  <!-- Vulkan Encoder Tab -->
+  <VulkanEncoder
+      v-if="currentTab === 'vulkan'"
+      :platform="platform"
+      :config="config"
+  />
+
   <!-- Software Encoder Tab -->
   <SoftwareEncoder
       v-if="currentTab === 'sw'"
@@ -61,6 +69,3 @@ const config = ref(props.config)
   />
 
 </template>
-
-<style scoped>
-</style>

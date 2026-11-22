@@ -49,18 +49,12 @@ import {
 import SimpleIcon from './SimpleIcon.vue'
 
 export default {
-  props: {
-    installedVersionNotStable: {
-      type: Boolean,
-      default: false
-    }
-  },
   components: {
     SimpleIcon,
     AlertCircle,
     BookOpen,
     CircleHelp,
     FileText,
-  }
+  },
 }
 </script>
