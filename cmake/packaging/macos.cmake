@@ -33,8 +33,18 @@ if(SUNSHINE_PACKAGE_MACOS)
         install(FILES "${LUMINA_QT_COCOA_PLUGIN}"
                 DESTINATION "bin/PlugIns/platforms"
                 COMPONENT Runtime)
+        set(LUMINA_RUNTIME_DIRS "${LUMINA_QT_PREFIX}/lib;${LUMINA_QTSVG_PREFIX}/lib")
+        # Some Homebrew libraries (e.g. brotli) reference siblings through
+        # @rpath, which BundleUtilities only resolves from its search dirs.
+        find_program(LUMINA_BREW brew)
+        if(LUMINA_BREW)
+            execute_process(COMMAND "${LUMINA_BREW}" --prefix
+                    OUTPUT_VARIABLE LUMINA_BREW_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+            list(APPEND LUMINA_RUNTIME_DIRS "${LUMINA_BREW_PREFIX}/lib")
+        endif()
         install(CODE
-                "set(LUMINA_QT_RUNTIME_DIRS \"${LUMINA_QT_PREFIX}/lib;${LUMINA_QTSVG_PREFIX}/lib\")"
+                "set(LUMINA_QT_RUNTIME_DIRS \"${LUMINA_RUNTIME_DIRS}\")"
                 COMPONENT Runtime)
 
         install(CODE [[

@@ -7,6 +7,7 @@ import vue from '@vitejs/plugin-vue'
 import process from 'node:process'
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url));
+const isUpstreamCi = process.env.GITHUB_REPOSITORY === 'SunshineStream/Sunshine';
 let assetsSrcPath = 'src_assets/common/assets/web';
 let assetsDstPath = 'build/assets/web';
 
@@ -64,15 +65,16 @@ export default defineConfig({
     plugins: [
         vue(),
         emitTrayIconsPlugin,
-        // The Codecov vite plugin should be after all other plugins
-        codecovVitePlugin({
+        // The Codecov vite plugin should be after all other plugins. Outside
+        // upstream CI its dry run writes bundle stats (with absolute build
+        // paths) into the web output, so only load it there.
+        ...(isUpstreamCi ? [codecovVitePlugin({
             enableBundleAnalysis: true,
             bundleName: "sunshine",
             uploadToken: process.env.CODECOV_TOKEN,
             gitService: "github",
-            dryRun: process.env.GITHUB_REPOSITORY !== 'SunshineStream/Sunshine',
-            telemetry: process.env.GITHUB_REPOSITORY === 'SunshineStream/Sunshine',
-        }),
+            telemetry: true,
+        })] : []),
     ],
     root: resolve(assetsSrcPath),
     build: {
