@@ -63,6 +63,12 @@ include(${CMAKE_MODULE_PATH}/prep/constants.cmake)
 # load macros
 include(${CMAKE_MODULE_PATH}/macros/common.cmake)
 
+# keep the local checkout path out of __FILE__ strings in distributed binaries;
+# set before dependencies so fetched sources (e.g. Boost) are covered too
+if(SUNSHINE_PACKAGE_MACOS)
+    add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=lumina")
+endif()
+
 # load dependencies
 include(${CMAKE_MODULE_PATH}/dependencies/common.cmake)
 

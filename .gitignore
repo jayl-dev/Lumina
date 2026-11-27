@@ -31,3 +31,6 @@ docs/doxyconfig*
 junit.xml
 test_sunshine.log*
 write_file_test_*.txt
+
+# Local notes
+*.local.md
